@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="ro-mark-white.svg">
+    <img src="ro-mark.svg" width="140" alt="Ro">
+  </picture>
+</p>
+
 # 公文自動公告系統 布建說明
 
 把公文丟進 Google 雲端硬碟的資料夾，AI 會自動整理成校網公告草稿、檢查個資。你在「審核台」按核准後，Chrome 裡的「公告助手」會自動發到學校網站（黑快馬 R-page 公告模組），連公文本體和附件一起上傳。
