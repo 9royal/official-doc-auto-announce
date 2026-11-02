@@ -1,0 +1,8 @@
+# 不要把金鑰、帳密或個人設定放進這個存放庫
+.env
+*.env
+*.key
+*secret*
+*token*
+.clasp.json
+.clasprc.json

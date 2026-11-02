@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#fff; --line:#e3e6ea; --ink:#1f2328; --muted:#6b7280;
+    --accent:#1a5fb4; --red:#c0392b; --redbg:#fdecea; --yellow:#b26a00; --yellowbg:#fff6e5;
+    --green:#1e7a46; --greenbg:#e8f5ec;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.65 "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+       background:var(--bg);color:var(--ink)}
+  header{background:var(--panel);border-bottom:1px solid var(--line);padding:14px 20px;
+         display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:10}
+  header h1{font-size:17px;margin:0;font-weight:700}
+  header .sub{color:var(--muted);font-size:13px}
+  .wrap{display:grid;grid-template-columns:320px 1fr;gap:16px;padding:16px;align-items:start}
+  @media(max-width:900px){.wrap{grid-template-columns:1fr}}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px}
+  .list{overflow:hidden}
+  .list h2{font-size:13px;color:var(--muted);margin:0;padding:12px 14px 6px;letter-spacing:.04em}
+  .item{padding:11px 14px;border-top:1px solid var(--line);cursor:pointer}
+  .item:hover{background:#f0f4f9}
+  .item.active{background:#e8f0fb;box-shadow:inset 3px 0 0 var(--accent)}
+  .item .t{font-weight:600;font-size:14px;margin-bottom:3px}
+  .item .m{font-size:12px;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap}
+
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:middle;margin-right:5px}
+  .dot.紅{background:var(--red)} .dot.黃{background:var(--yellow)} .dot.綠{background:var(--green)}
+
+  .pane{padding:18px 20px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:1100px){.row{grid-template-columns:1fr}}
+  label{display:block;font-size:12px;color:var(--muted);margin:14px 0 4px;font-weight:600}
+  input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);
+    border-radius:6px;font:inherit;background:#fff}
+  textarea{min-height:200px;font-family:ui-monospace,"SFMono-Regular",Menlo,monospace;font-size:13px}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+
+  .meta{background:#f8f9fb;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:13px}
+  .meta div{display:flex;gap:8px;padding:3px 0}
+  .meta b{color:var(--muted);font-weight:600;min-width:72px}
+
+  .risk{border-radius:8px;padding:12px 14px;margin:14px 0;font-size:13px}
+  .risk.紅{background:var(--redbg);border:1px solid #f3c0ba;color:var(--red)}
+  .risk.黃{background:var(--yellowbg);border:1px solid #f0d9a8;color:var(--yellow)}
+  .risk.綠{background:var(--greenbg);border:1px solid #bfe0cb;color:var(--green)}
+  .risk ul{margin:6px 0 0;padding-left:18px}
+  .risk .h{font-weight:700}
+
+  .att{font-size:13px;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-top:6px}
+  .att div{padding:8px 12px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:10px}
+  .att div:first-child{border-top:none}
+  .att a{color:var(--accent);text-decoration:none}
+
+  .bar{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+  button{padding:9px 18px;border-radius:7px;border:1px solid var(--line);background:#fff;
+         font:inherit;font-weight:600;cursor:pointer}
+  button:hover{background:#f0f4f9}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.primary:hover{filter:brightness(1.08)}
+  button.danger{color:var(--red);border-color:#f3c0ba}
+  button:disabled{opacity:.45;cursor:not-allowed}
+
+  iframe{width:100%;height:460px;border:1px solid var(--line);border-radius:8px;background:#fff}
+  .empty{padding:60px 20px;text-align:center;color:var(--muted)}
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#1f2328;color:#fff;
+    padding:11px 20px;border-radius:8px;font-size:14px;box-shadow:0 6px 20px rgba(0,0,0,.2);
+    opacity:0;pointer-events:none;transition:opacity .25s;max-width:80vw}
+  .toast.show{opacity:1}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid #fff6;border-top-color:#fff;
+    border-radius:50%;animation:s .7s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes s{to{transform:rotate(360deg)}}
+
+  .tabs{display:flex;border-bottom:1px solid var(--line)}
+  .tabs button{flex:1;border:none;border-radius:0;padding:11px 8px;font-size:14px;color:var(--muted);background:#fff}
+  .tabs button[aria-selected="true"]{color:var(--accent);box-shadow:inset 0 -3px 0 var(--accent);background:#fff}
+  .filters{display:grid;gap:8px;padding:10px 14px}
+  .filters select,.filters input{font-size:14px}
+  .helper{font-size:13px;font-weight:600}
+  .helper.green{color:var(--green)} .helper.yellow{color:var(--yellow)} .helper.red{color:var(--red)} .helper.muted{color:var(--muted)}
+  .spacer{flex:1}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>公文自動公告 · 審核台</h1>
+  <span class="sub" id="hint">載入中…</span>
+  <span class="helper muted" id="helper" aria-live="polite"></span>
+  <span style="flex:1"></span>
+  <button onclick="load()">重新整理</button>
+</header>
+
+<div class="wrap">
+  <div class="card list" id="list"></div>
+  <div class="card" id="pane"><div class="empty">左邊選一個案件開始審核</div></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let CUR = null, DATA = null, DRAFT = null, CURCASE = null;
+let TAB = 'pending', FOLDER = '', QUERY = '';   // 清單分頁：待處理／歷史公文（依歸檔資料夾）
+// 哪些狀態可以編輯／重新解析、可以退回（送出中不能退回：公告可能已經上了校網）
+const EDITABLE = {REVIEW:1, BLOCKED:1, ERROR:1, PARSING:1, NEW:1};
+const REJECTABLE = {REVIEW:1, BLOCKED:1, ERROR:1, PARSING:1, NEW:1, APPROVED:1};
+
+function toast(m, ms){ const t=document.getElementById('toast'); t.textContent=m;
+  t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), ms||3000); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,
+  m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+
+function load(){
+  google.script.run.withSuccessHandler(render).withFailureHandler(e=>toast(e.message)).api_list();
+}
+
+function render(d){
+  DATA = d;
+  const n = d.pending.filter(x=>x.status==='REVIEW').length;
+  const b = d.pending.filter(x=>x.status==='BLOCKED').length;
+  document.getElementById('hint').textContent = n+' 件待審　'+b+' 件已擋下';
+  helperBadge(d.helper);
+
+  const arch = d.archive || [];
+  const tab = (key, text) => '<button role="tab" aria-selected="'+(TAB===key)+'" onclick="setTab(\''+key+'\')">'+text+'</button>';
+  let h = '<div class="tabs" role="tablist">' + tab('pending', '待處理（'+d.pending.length+'）')
+        + tab('archive', '歷史公文（'+arch.length+'）') + '</div>';
+  if(TAB === 'pending'){
+    h += '<h2>待處理</h2>';
+    h += d.pending.length ? d.pending.map(item).join('') : '<div class="empty" style="padding:24px">沒有待處理案件</div>';
+    h += '<h2 style="margin-top:10px">最近完成（'+(d.recentHours||48)+' 小時內）</h2>';
+    h += d.done.length ? d.done.map(item).join('')
+       : '<div class="empty" style="padding:16px">沒有；更早的在「歷史公文」</div>';
+  } else {
+    const counts = {};
+    arch.forEach(x => { counts[x.archive] = (counts[x.archive]||0) + 1; });
+    if(FOLDER && !counts[FOLDER]) FOLDER = '';   // 選的資料夾已經沒有公文（例如剛改到別的資料夾）：回到全部
+    h += '<div class="filters"><select aria-label="歸檔資料夾" onchange="FOLDER=this.value;renderArchive()">'
+      + '<option value="">全部資料夾（'+arch.length+'）</option>'
+      + (d.folders||[]).filter(f => counts[f]).map(f =>
+          '<option value="'+esc(f)+'"'+(f===FOLDER?' selected':'')+'>'+esc(f)+'（'+counts[f]+'）</option>').join('')
+      + '</select><input type="search" aria-label="搜尋標題" placeholder="搜尋標題或機關" value="'+esc(QUERY)+'" oninput="QUERY=this.value;renderArchive()"></div>'
+      + '<div id="archBody"></div>';
+  }
+  document.getElementById('list').innerHTML = h;
+  if(TAB === 'archive') renderArchive();
+}
+
+function setTab(t){ TAB = t; render(DATA); }
+
+/** 歷史公文：依歸檔資料夾分組，可篩資料夾、搜尋標題或機關 */
+function renderArchive(){
+  const q = QUERY.trim();
+  const arch = (DATA.archive||[]).filter(x => (!FOLDER || x.archive===FOLDER)
+    && (!q || (x.title+' '+(x.org||'')).indexOf(q) >= 0));
+  let h = '';
+  (DATA.folders||[]).forEach(f => {
+    const xs = arch.filter(x => x.archive===f);
+    if(xs.length) h += '<h2>'+esc(f)+'（'+xs.length+'）</h2>' + xs.map(item).join('');
+  });
+  document.getElementById('archBody').innerHTML = h || '<div class="empty" style="padding:24px">沒有符合的公文</div>';
+}
+
+/** 公告助手狀態（每一輪自動發布都會回報） */
+function helperBadge(h){
+  const el = document.getElementById('helper');
+  if(!h){ el.textContent=''; return; }
+  let t, cls;
+  if(h.state==='never'){ t='公告助手：還沒有回報（請安裝 1.7 版並開著後台分頁）'; cls='muted'; }
+  else if(h.ageMin > 15){ t='公告助手：'+h.ageMin+' 分鐘沒有回報（電腦、Chrome 或後台分頁可能沒開）'; cls='red'; }
+  else if(h.state==='paused'){ t='公告助手：已暫停 — '+h.msg; cls='red'; }
+  else if(h.state==='login'){ t='公告助手：校網後台登入已過期，請重新登入'; cls='red'; }
+  else if(!h.auto || h.state==='off'){ t='公告助手：「核准後自動發布」沒有勾選'; cls='yellow'; }
+  else if(h.state==='stuck'){ t='公告助手：在跑，但沒辦法送出 — '+h.msg; cls='yellow'; }
+  else { t='公告助手：運作中（'+h.at+'）'; cls='green'; }
+  el.textContent = t;
+  el.className = 'helper ' + cls;
+}
+
+function item(x){
+  const tag = {NEW:'新收件', REVIEW:'待審', BLOCKED:'已擋下', PARSING:'解析中', ERROR:'錯誤',
+               APPROVED:'待發布', SUBMITTING:'送出中', PUBLISHED:'已發布', REJECTED:'已退回'}[x.status] || x.status;
+  // 送出中超過 30 分鐘還沒確認上架：紅字提醒到後台確認
+  const tagHtml = x.stale ? '<span style="color:var(--red);font-weight:700">'+tag+'・請確認</span>' : '<span>'+tag+'</span>';
+  return '<div class="item'+(CUR===x.caseId?' active':'')+'" onclick="open_(\''+x.caseId+'\')">'
+    + '<div class="t"><span class="dot '+(x.risk||'綠')+'"></span>'+esc(x.title)+'</div>'
+    + '<div class="m">'+tagHtml+'<span>'+esc(x.category||'')+'</span><span>'+esc(x.created)+'</span></div>'
+    + '</div>';
+}
+
+function open_(id){
+  CUR = id;
+  render(DATA);
+  document.getElementById('pane').innerHTML = '<div class="empty">載入中…</div>';
+  google.script.run.withSuccessHandler(detail).withFailureHandler(e=>toast(e.message)).api_detail(id);
+}
+
+function detail(c){
+  CURCASE = c;
+  const risk = c.risk || '綠';
+  const atts = c.attachments.length
+    ? '<div class="att">' + c.attachments.map(a =>
+        '<div><a href="'+a.url+'" target="_blank">'+esc(a.name)+'</a>'
+        + '<span style="color:var(--muted)">'+Math.round((a.size||0)/1024)+' KB</span></div>').join('')
+      + '</div>'
+    : '<div style="color:var(--muted);font-size:13px;margin-top:6px">無附件</div>';
+
+  document.getElementById('pane').innerHTML = `
+  <div class="pane">
+    <div class="row">
+      <div>
+        <div class="meta">
+          <div><b>發文機關</b><span>${esc(c.org)}</span></div>
+          <div><b>發文字號</b><span>${esc(c.docNo)}</span></div>
+          <div><b>發文日期</b><span>${esc(c.docDate)}</span></div>
+          <div><b>密等</b><span>${esc(c.security)}</span></div>
+          <div><b>主旨</b><span>${esc(c.subject)}</span></div>
+          ${c.deadline ? `<div><b>辦理期限</b><span>${esc(c.deadline)}</span></div>` : ''}
+        </div>
+        <div class="risk ${risk}">
+          <div class="h">個資紅綠燈：${risk}燈</div>
+          <ul>${c.riskNotes.map(r=>'<li>'+esc(r)+'</li>').join('')}</ul>
+        </div>
+        <label>公文原文</label>
+        ${c.mainFileId
+          ? `<iframe src="https:\/\/drive.google.com/file/d/${c.mainFileId}/preview"></iframe>`
+          : '<div style="color:var(--muted)">無法預覽</div>'}
+        <label>附件（會一併上傳校網，請確認內容沒有名冊或個資）</label>
+        ${atts}
+      </div>
+
+      <div>
+        <label>公告標題</label>
+        <input id="f_title" value="${esc(c.title)}">
+
+        <label>分類</label>
+        <select id="f_cat">${c.categories.map(x=>
+          `<option ${x===c.category?'selected':''}>${esc(x)}</option>`).join('')}</select>
+
+        <label>適用對象</label>
+        <select id="f_scope">${c.scopes.map(x=>
+          `<option ${x===c.scope?'selected':''}>${esc(x)}</option>`).join('')}</select>
+
+        <label for="f_archive">歸檔資料夾（歷史公文分頁；改了立即存）</label>
+        <select id="f_archive" onchange="setArchive(this.value)">${(c.folders||[]).map(x=>
+          `<option ${x===c.archive?'selected':''}>${esc(x)}</option>`).join('')}</select>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><label>公告起日</label><input type="date" id="f_start" value="${esc(c.startDate)}"></div>
+          <div><label>公告迄日</label><input type="date" id="f_end" value="${esc(c.endDate)}"></div>
+        </div>
+
+        <label>公告內文（HTML）</label>
+        <textarea id="f_body">${esc(c.body)}</textarea>
+
+        <label>預覽</label>
+        <iframe id="prev" class="meta" title="公告內文預覽" sandbox="" referrerpolicy="no-referrer" style="width:100%;min-height:160px"></iframe>
+
+        ${(c.needsFileCheck && c.status==='REVIEW') || (c.canForce && c.forceFileCheck) ? `
+        <label style="display:flex;gap:8px;align-items:center;font-weight:600;color:var(--ink);margin-top:14px">
+          <input type="checkbox" id="f_checked" style="width:auto">我已打開檢查附件，沒有名冊或個資
+        </label>` : ''}
+        ${c.status==='SUBMITTING' ? `
+        <p style="font-size:13px;color:var(--muted);margin:12px 0 0">
+          公告助手${c.claimedAt ? '在 '+esc(c.claimedAt)+' ' : ''}開始送出。校網出現後會自動標成已發布；
+          等太久請到校網後台確認，再用下面兩個按鈕處理。</p>` : ''}
+        <div class="bar">
+          ${EDITABLE[c.status] ? `<button onclick="save()">存草稿</button>
+          <button onclick="reparse()">重新解析</button>` : ''}
+          ${c.status==='DELETED'
+            ? '<span style="align-self:center;color:var(--muted);font-weight:700">已刪除</span>'
+            : ({APPROVED:'已核准 — 等待公告助手自動發布', PUBLISHED:'已發布'})[c.status]
+            ? '<span style="align-self:center;color:var(--green);font-weight:700">' + ({APPROVED:'已核准 — 等待公告助手自動發布',
+              PUBLISHED:'已發布'})[c.status] + '</span>'
+            : c.status==='REJECTED'
+            ? `<span style="align-self:center;color:var(--muted);font-weight:700">已退回</span>
+               <button class="primary" onclick="resubmit()">重新送審</button>`
+            : c.status==='SUBMITTING'
+            ? `<button class="primary" onclick="markPublished()">已上架，貼網址</button>
+               <button onclick="unsubmit()">後台沒有這則，改回待發布</button>`
+            : `<button class="primary" id="btnOk" onclick="approve()" ${c.blocked?'disabled':''}>核准，送交發布</button>`}
+          ${c.canForce ? '<button class="danger" onclick="force()">確認風險，強制送出</button>' : ''}
+          ${REJECTABLE[c.status] ? '<button class="danger" onclick="reject()">退回</button>' : ''}
+          ${c.siteUrl ? `<a href="${c.siteUrl}" target="_blank" style="align-self:center">看校網</a>` : ''}
+          <span class="spacer"></span>
+          ${c.status!=='SUBMITTING' && c.status!=='DELETED' ? '<button class="danger" onclick="del()" title="公文資料夾移到雲端硬碟垃圾桶">刪除</button>' : ''}
+        </div>
+        ${c.blocked && c.canOverride ? `
+        <p style="color:var(--red);font-size:13px">附件掃描到疑似個資而被擋下。請打開上面列出的附件確認：
+          若只是範例、空白表格或可以公開的資料，按下面按鈕並寫下原因，就能回到待審。</p>
+        <button onclick="overrideRed()">確認附件可公開，解除紅燈</button>`
+          : c.blocked ? '<p style="color:var(--red);font-size:13px">此案件因密等、不宜公開或公告內文含個資被擋下，不提供發布。</p>' : ''}
+        ${c.note ? `<p style="color:var(--muted);font-size:13px">備註：${esc(c.note)}</p>` : ''}
+      </div>
+    </div>
+  </div>`;
+
+  const body = document.getElementById('f_body');
+  const prev = document.getElementById('prev');
+  // 草稿來自模型及輸入內容，預覽不得執行腳本、表單或載入外部資源。
+  const upd = () => prev.srcdoc = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'">' + body.value;
+  body.addEventListener('input', upd); upd();
+  // 記下載入時的內容與存草稿時間，重新解析前用來判斷會不會蓋掉修改
+  DRAFT = { savedAt: c.draftSavedAt || '', orig: JSON.stringify(payload()) };
+}
+
+function payload(){
+  return {
+    title: document.getElementById('f_title').value,
+    body: document.getElementById('f_body').value,
+    category: document.getElementById('f_cat').value,
+    scope: document.getElementById('f_scope').value,
+    startDate: document.getElementById('f_start').value,
+    endDate: document.getElementById('f_end').value
+  };
+}
+
+function busy(on, label){
+  const b = document.getElementById('btnOk');
+  if(b){ b.disabled = on; b.innerHTML = on ? '<span class="spin"></span>'+label : '核准，送交發布'; }
+}
+
+function save(){
+  google.script.run.withSuccessHandler(r=>{ toast('已存草稿（'+r.risk.level+'燈）'); open_(CUR); })
+    .withFailureHandler(e=>toast(e.message)).api_save(CUR, payload());
+}
+
+function approve(){
+  const chk = document.getElementById('f_checked');
+  if(chk && !chk.checked){
+    toast('有附件沒辦法自動掃描或疑似名冊，請先逐一打開檢查，再勾選「我已打開檢查附件」。', 6000);
+    chk.focus();
+    return;
+  }
+  if(!confirm('確定核准？核准後公告助手會自動發布到校網（後台分頁需開著並勾選「核准後自動發布」）。')) return;
+  busy(true,'處理中');
+  google.script.run.withSuccessHandler(r=>{
+    busy(false);
+    toast(r.message, 6000);
+    if(r.ok){ load(); document.getElementById('pane').innerHTML='<div class="empty">已核准，待發布</div>'; CUR=null; }
+  }).withFailureHandler(e=>{busy(false); toast(e.message,6000);})
+    .api_approve(CUR, Object.assign(payload(), { filesChecked: !!(chk && chk.checked) }));
+}
+
+/** 改歸檔資料夾（立即存） */
+function setArchive(v){
+  google.script.run.withSuccessHandler(r=>{ toast('已歸到「'+r.archive+'」'); load(); })
+    .withFailureHandler(e=>toast(e.message,6000)).api_setArchive(CUR, v);
+}
+
+/** 刪除整份公文：資料夾移到雲端硬碟垃圾桶（30 天內可救回），審核台不再顯示 */
+function del(){
+  const c = CURCASE || {};
+  let m = '確定刪除「'+(c.title||'')+'」？\n\n公文資料夾和裡面所有檔案會移到 Google 雲端硬碟的垃圾桶（30 天內可以從垃圾桶救回），審核台不再顯示這則。';
+  if(c.status==='PUBLISHED') m += '\n\n注意：校網上已發布的公告不會被刪除，要到校網後台自己刪。';
+  if(!confirm(m)) return;
+  google.script.run.withSuccessHandler(r=>{
+    toast(r.trashed ? '已刪除，資料夾已移到垃圾桶' : '已從審核台刪除（資料夾已不在）', 5000);
+    CUR = null; document.getElementById('pane').innerHTML = '<div class="empty">已刪除</div>'; load();
+  }).withFailureHandler(e=>toast(e.message,6000)).api_deleteCase(CUR);
+}
+
+/** 已退回 → 重新送審 */
+function resubmit(){
+  if(!confirm('把這則改回待審，重新審核後再送出？')) return;
+  google.script.run.withSuccessHandler(c=>{ detail(c); toast('已改回待審'); load(); })
+    .withFailureHandler(e=>toast(e.message,6000)).api_resubmit(CUR);
+}
+
+/** 紅燈強制送出：看過風險、寫下原因；密等公文還要輸入「確認公開」 */
+function force(){
+  const c = CURCASE || {};
+  const chk = document.getElementById('f_checked');
+  if(c.forceFileCheck && !(chk && chk.checked)){
+    toast('強制送出前，請先逐一打開附件和公文本體檢查，再勾選「我已打開檢查附件」。', 6000);
+    if(chk) chk.focus();
+    return;
+  }
+  if(!confirm('這則是紅燈：\n\n・' + (c.riskNotes||[]).join('\n・') +
+     '\n\n強制送出後，公告助手會照常把公告和檔案（含公文本體）發到校網。\n確定已經看過、可以公開嗎？')) return;
+  const why = prompt('請寫下可以公開的原因（會記錄在系統裡）：');
+  if(why===null) return;
+  let typed = '';
+  if(c.secret){
+    typed = prompt('這份公文標示密等「'+c.security+'」。確定要公開，請輸入「確認公開」：');
+    if(typed===null) return;
+  }
+  google.script.run.withSuccessHandler(r=>{
+    toast(r.message, 6000);
+    if(r.ok){ load(); document.getElementById('pane').innerHTML='<div class="empty">已強制核准，待發布</div>'; CUR=null; }
+  }).withFailureHandler(e=>toast(e.message,6000))
+    .api_forceApprove(CUR, Object.assign(payload(), { filesChecked: !!(chk && chk.checked) }), why, typed);
+}
+
+/** 只因附件掃描被擋下：打開附件確認後，寫原因解除紅燈（之後核准仍要勾「已開啟檢查」） */
+function overrideRed(){
+  const why = prompt('請寫下可以公開的原因（例如：附件裡是範例資料、空白報名表）：');
+  if(why===null) return;
+  google.script.run.withSuccessHandler(c=>{ detail(c); toast('已解除紅燈，回到待審'); load(); })
+    .withFailureHandler(e=>toast(e.message,6000)).api_overrideFileRed(CUR, why);
+}
+
+/** 送出中：到校網確認已上架，貼公告網址標成已發布 */
+function markPublished(){
+  // Apps Script 送出網頁時會刪掉它認為是註解的「//」到行尾，字串裡的網址斜線要寫成 \/\/
+  const url = prompt('貼上校網上這則公告的網址（.../p/....php）：');
+  if(url===null) return;
+  google.script.run.withSuccessHandler(()=>{ toast('已標成已發布'); load(); open_(CUR); })
+    .withFailureHandler(e=>toast(e.message,6000)).api_markPublished(CUR, url.trim());
+}
+
+/** 送出中：到後台確認沒有這則，改回待發布（自動發布開著會重新送出） */
+function unsubmit(){
+  if(!confirm('請先到校網後台「公告模組」確認真的沒有這則公告。\n\n改回待發布後，自動發布開著的話會重新送出一次；不想發了，改回後再按「退回」。\n\n確定後台沒有這則嗎？')) return;
+  google.script.run.withSuccessHandler(()=>{ toast('已改回待發布'); load(); open_(CUR); })
+    .withFailureHandler(e=>toast(e.message,6000)).api_unsubmit(CUR);
+}
+
+function retry(){
+  google.script.run.withSuccessHandler(r=>{ toast(r.message,6000); load(); })
+    .withFailureHandler(e=>toast(e.message,6000)).api_retryPublish(CUR);
+}
+
+function reject(){
+  const n = prompt('退回原因：');
+  if(n===null) return;
+  google.script.run.withSuccessHandler(()=>{ toast('已退回'); load();
+    document.getElementById('pane').innerHTML='<div class="empty">已退回</div>'; CUR=null; })
+    .withFailureHandler(e=>toast(e.message)).api_reject(CUR, n);
+}
+
+/** 存過草稿或畫面上有沒存的修改 → 回傳提醒文字；都沒有回傳空字串 */
+function reparseWarning(){
+  if(!DRAFT) return '';
+  const dirty = JSON.stringify(payload()) !== DRAFT.orig;
+  if(!DRAFT.savedAt && !dirty) return '';
+  const why = DRAFT.savedAt
+    ? '這則在 ' + DRAFT.savedAt + ' 存過草稿' + (dirty ? '，畫面上還有沒存的修改' : '')
+    : '畫面上有還沒存的修改';
+  return why + '。\n\n重新解析會讓 AI 重寫標題、內文、分類、適用對象與起迄日，你改過的內容會被蓋掉。\n\n確定要重新解析嗎？';
+}
+
+function reparse(){
+  const w = reparseWarning();
+  if(w && !confirm(w)) return;
+  toast('重新解析中，約需 10 秒…');
+  google.script.run.withSuccessHandler(c=>{ detail(c); toast('已重新解析'); load(); })
+    .withFailureHandler(e=>toast(e.message)).api_reparse(CUR);
+}
+
+load();
+</script>
+</body>
+</html>
