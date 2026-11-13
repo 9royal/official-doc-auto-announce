@@ -4,5 +4,8 @@
 *.key
 *secret*
 *token*
-.clasp.json
-.clasprc.json
+credentials*
+.clasp*
+node_modules/
+__pycache__/
+.DS_Store

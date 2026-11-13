@@ -83,6 +83,45 @@
   .helper{font-size:13px;font-weight:600}
   .helper.green{color:var(--green)} .helper.yellow{color:var(--yellow)} .helper.red{color:var(--red)} .helper.muted{color:var(--muted)}
   .spacer{flex:1}
+
+  /* v10 發布方式與寄信 */
+  .modes{display:flex;gap:8px;flex-wrap:wrap}
+  .modes label{display:flex;align-items:center;gap:6px;margin:0;padding:7px 12px;border:1px solid var(--line);
+    border-radius:7px;font-size:14px;color:var(--ink);font-weight:600;cursor:pointer;background:#fff}
+  .modes label:has(input:checked){border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:#eef4fc}
+  .modes label:has(input:disabled){opacity:.45;cursor:not-allowed}
+  .modes input{width:auto;margin:0}
+  .mailrow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .mailrow #m_desc{grid-column:1 / -1}
+  .subj{margin-top:8px;padding:8px 12px;border-radius:6px;background:#f8f9fb;border:1px dashed var(--line);
+    font-weight:700;font-size:14px;word-break:break-all}
+  .npwarn{margin:8px 0 4px;padding:10px 12px;border:1px solid var(--yellow);border-radius:10px}
+  .npwarn p{margin:0 0 6px;color:var(--yellow);font-weight:600}
+  .npwarn label{display:flex;gap:8px;align-items:center;margin:0;font-weight:600;color:var(--ink)}
+  .npwarn input{width:auto;flex:none;margin:0}
+  .groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px}
+  .groups label{display:flex;gap:6px;align-items:flex-start;margin:0;padding:6px 8px;border:1px solid var(--line);
+    border-radius:6px;font-size:13px;color:var(--ink);font-weight:600;cursor:pointer}
+  .groups label small{display:block;font-weight:400;color:var(--muted);font-size:11px;word-break:break-all}
+  .groups input{width:auto;margin-top:3px}
+  .grphead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:14px}
+  .grphead label{margin:0}
+  .grphead button{padding:4px 10px;font-size:13px}
+  #m_count{font-weight:600}
+  #m_count.over{color:var(--red)}
+  .gm{margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:10px;background:#f8f9fb}
+  .gm .row{display:grid;grid-template-columns:minmax(110px,1fr) 2fr auto;gap:6px;align-items:start;margin-bottom:6px}
+  .gm .row input,.gm .row textarea{font-size:13px;min-height:0}
+  .gm .row textarea{min-height:38px;font-family:inherit}
+  .gm .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+  @media (max-width:560px){ .gm .row{grid-template-columns:1fr} }
+  .hint{font-size:13px;color:var(--muted);margin:8px 0 0}
+  .mailstate{margin-top:12px;padding:10px 12px;border-radius:8px;font-size:13px;font-weight:600}
+  .mailstate.ok{background:var(--greenbg);color:var(--green)}
+  .mailstate.wait{background:#eef4fc;color:var(--accent)}
+  .mailstate.bad{background:var(--redbg);color:var(--red)}
+  .section{margin-top:18px;padding-top:4px;border-top:1px dashed var(--line)}
+  .section h3{font-size:14px;margin:10px 0 0}
 </style>
 </head>
 <body>
@@ -119,6 +158,7 @@
   <h1>公文自動公告 · 審核台</h1>
   <span class="sub" id="hint">載入中…</span>
   <span class="helper muted" id="helper" aria-live="polite"></span>
+  <span class="helper muted" id="mailHelper" aria-live="polite"></span>
   <span style="flex:1"></span>
   <button onclick="load()">重新整理</button>
 </header>
@@ -136,6 +176,10 @@ let TAB = 'pending', FOLDER = '', QUERY = '';   // 清單分頁：待處理／�
 // 哪些狀態可以編輯／重新解析、可以退回（送出中不能退回：公告可能已經上了校網）
 const EDITABLE = {REVIEW:1, BLOCKED:1, ERROR:1, PARSING:1, NEW:1};
 const REJECTABLE = {REVIEW:1, BLOCKED:1, ERROR:1, PARSING:1, NEW:1, APPROVED:1};
+// 已核准之後的狀態說明（v10 加上寄信）
+const DONE_TEXT = {APPROVED:'已核准 — 等待公告助手自動發布', PUBLISHED:'已發布',
+                   MAILING:'已核准 — 等寄信小幫手寄出（約 5 分鐘）', MAILED:'已寄信'};
+let GROUPS_TOUCHED = false;   // 收件群組手動改過就不再跟著適用對象自動勾
 
 function toast(m, ms){ const t=document.getElementById('toast'); t.textContent=m;
   t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), ms||3000); }
@@ -152,6 +196,7 @@ function render(d){
   const b = d.pending.filter(x=>x.status==='BLOCKED').length;
   document.getElementById('hint').textContent = n+' 件待審　'+b+' 件已擋下';
   helperBadge(d.helper);
+  mailHelperBadge(d.mailHelper);
 
   const arch = d.archive || [];
   const tab = (key, text) => '<button role="tab" aria-selected="'+(TAB===key)+'" onclick="setTab(\''+key+'\')">'+text+'</button>';
@@ -209,11 +254,33 @@ function helperBadge(h){
   el.className = 'helper ' + cls;
 }
 
+/** 寄信小幫手狀態（裝在寄件帳號，每 5 分鐘回報一次） */
+function mailHelperBadge(h){
+  const el = document.getElementById('mailHelper');
+  if(!h){ el.textContent=''; return; }
+  let t, cls;
+  if(h.state==='unset'){ t='寄信：還沒設定（在 Apps Script 執行 setupMail）'; cls='muted'; }
+  else if(h.state==='never'){ t='寄信小幫手：還沒有回報（請在寄件帳號裝好並執行 setup）'; cls='yellow'; }
+  else if(h.state==='error'){ t='寄信小幫手：讀不到寄信佇列 — '+h.msg; cls='red'; }
+  else if(h.state==='stale'){ t='寄信小幫手：'+h.ageMin+' 分鐘沒有回報（排程可能停了）'; cls='red'; }
+  else if(h.wrongAccount){ t='寄信小幫手：裝在 '+h.account+'，不是指定的寄件帳號'; cls='yellow'; }
+  else if(h.state==='warn'){ t='寄信小幫手：暫停寄信 — '+h.msg; cls='red'; }
+  else { t='寄信小幫手：運作中（'+h.at+'）'; cls='green'; }
+  el.textContent = t;
+  el.className = 'helper ' + cls;
+}
+
 function item(x){
-  const tag = {NEW:'新收件', REVIEW:'待審', BLOCKED:'已擋下', PARSING:'解析中', ERROR:'錯誤',
-               APPROVED:'待發布', SUBMITTING:'送出中', PUBLISHED:'已發布', REJECTED:'已退回'}[x.status] || x.status;
-  // 送出中超過 30 分鐘還沒確認上架：紅字提醒到後台確認
-  const tagHtml = x.stale ? '<span style="color:var(--red);font-weight:700">'+tag+'・請確認</span>' : '<span>'+tag+'</span>';
+  let tag = {NEW:'新收件', REVIEW:'待審', BLOCKED:'已擋下', PARSING:'解析中', ERROR:'錯誤',
+               APPROVED:'待發布', SUBMITTING:'送出中', PUBLISHED:'已發布', REJECTED:'已退回',
+               MAILING:'待寄信', MAILED:'已寄信'}[x.status] || x.status;
+  if(x.status==='PUBLISHED' && x.mail==='已寄') tag = '已發布・已寄信';
+  if(x.status==='PUBLISHED' && (x.mail==='等公告' || x.mail==='待寄')) tag = '已發布・寄信中';
+  const mailBad = x.mail==='失敗' && x.status!=='REJECTED';
+  if(mailBad) tag = '寄信失敗';
+  // 送出中超過 30 分鐘還沒確認上架、寄信失敗：紅字提醒
+  const tagHtml = mailBad ? '<span style="color:var(--red);font-weight:700">'+tag+'</span>'
+    : x.stale ? '<span style="color:var(--red);font-weight:700">'+tag+'・請確認</span>' : '<span>'+tag+'</span>';
   return '<div class="item'+(CUR===x.caseId?' active':'')+'" onclick="open_(\''+x.caseId+'\')">'
     + '<div class="t"><span class="dot '+(x.risk||'綠')+'"></span>'+esc(x.title)+'</div>'
     + '<div class="m">'+tagHtml+'<span>'+esc(x.category||'')+'</span><span>'+esc(x.created)+'</span></div>'
@@ -228,7 +295,14 @@ function open_(id){
 }
 
 function detail(c){
+  // 寄信欄位缺的時候給預設值，畫面照樣能開
+  c = Object.assign({ modes:['公告＋寄信','只有公告','只有寄信'], mode:'只有公告', mailUnits:[], mailTypes:[],
+    groups:[], mailGroups:[], mailFiles:[], mailMB:0, mailMaxMB:20, mailReady:true, mailSender:'', scopeGroups:{},
+    mailUnit:'', mailType:'', mailDesc:'', mailText:'', mailState:'' }, c);
+  // 還沒排過信、也沒選過群組（例如加寄信功能前就整理好的公文）：依適用對象先勾好
+  if(!c.mailGroups.length && !c.mailState && c.scopeGroups) c.mailGroups = (c.scopeGroups[c.scope] || []).slice();
   CURCASE = c;
+  GROUPS_TOUCHED = false;
   const risk = c.risk || '綠';
   const atts = c.attachments.length
     ? '<div class="att">' + c.attachments.map(a =>
@@ -262,31 +336,70 @@ function detail(c){
       </div>
 
       <div>
-        <label>公告標題</label>
-        <input id="f_title" value="${esc(c.title)}">
+        <label>發布方式</label>
+        <div class="modes" role="radiogroup" aria-label="發布方式">${c.modes.map(m=>
+          `<label><input type="radio" name="mode" value="${esc(m)}" ${m===c.mode?'checked':''}
+            ${c.notPublic && !c.notPublicOk && m!=='只有寄信'?'disabled':''} onchange="modeChanged()">${esc(m)}</label>`).join('')}</div>
+        ${c.notPublic ? `<div class="npwarn">
+          <p>AI 研判這則不宜公開到校網${npWhy(c) ? '：' + esc(npWhy(c)) : ''}。建議只寄信給校內群組。</p>
+          <label><input type="checkbox" id="np_ok" ${c.notPublicOk?'checked':''} onchange="npChanged()">
+            我已確認可以公開到校網（解除警告，可以選公告）</label></div>` : ''}
 
-        <label>分類</label>
-        <select id="f_cat">${c.categories.map(x=>
-          `<option ${x===c.category?'selected':''}>${esc(x)}</option>`).join('')}</select>
-
-        <label>適用對象</label>
-        <select id="f_scope">${c.scopes.map(x=>
+        <label for="f_scope">適用對象</label>
+        <select id="f_scope" onchange="scopeChanged()">${c.scopes.map(x=>
           `<option ${x===c.scope?'selected':''}>${esc(x)}</option>`).join('')}</select>
 
         <label for="f_archive">歸檔資料夾（歷史公文分頁；改了立即存）</label>
         <select id="f_archive" onchange="setArchive(this.value)">${(c.folders||[]).map(x=>
           `<option ${x===c.archive?'selected':''}>${esc(x)}</option>`).join('')}</select>
 
+        <div id="secPost" class="section">
+        <h3>校網公告</h3>
+        <label for="f_title">公告標題</label>
+        <input id="f_title" value="${esc(c.title)}">
+
+        <label for="f_cat">分類</label>
+        <select id="f_cat">${c.categories.map(x=>
+          `<option ${x===c.category?'selected':''}>${esc(x)}</option>`).join('')}</select>
+
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          <div><label>公告起日</label><input type="date" id="f_start" value="${esc(c.startDate)}"></div>
-          <div><label>公告迄日</label><input type="date" id="f_end" value="${esc(c.endDate)}"></div>
+          <div><label for="f_start">公告起日</label><input type="date" id="f_start" value="${esc(c.startDate)}"></div>
+          <div><label for="f_end">公告迄日</label><input type="date" id="f_end" value="${esc(c.endDate)}"></div>
         </div>
 
-        <label>公告內文（HTML）</label>
+        <label for="f_body">公告內文（HTML）</label>
         <textarea id="f_body">${esc(c.body)}</textarea>
 
         <label>預覽</label>
         <iframe id="prev" class="meta" title="公告內文預覽" sandbox="" referrerpolicy="no-referrer" style="width:100%;min-height:160px"></iframe>
+        </div>
+
+        <div id="secMail" class="section">
+        <h3>寄信（寄件人 ${esc(c.mailSender)}）</h3>
+        <label>寄件標題：發布單位－[發布內容歸類]－內容簡要說明</label>
+        <div class="mailrow">
+          <select id="m_unit" aria-label="發布單位" onchange="mailPreview()">${c.mailUnits.map(u=>
+            `<option value="${esc(u.key)}" ${u.key===c.mailUnit?'selected':''}>${esc(u.key+'（'+u.name+'）')}</option>`).join('')}</select>
+          <select id="m_type" aria-label="發布內容歸類" onchange="mailPreview()">${c.mailTypes.map(x=>
+            `<option ${x===c.mailType?'selected':''}>${esc(x)}</option>`).join('')}</select>
+          <input id="m_desc" aria-label="內容簡要說明" maxlength="60" value="${esc(c.mailDesc)}" oninput="mailPreview()">
+        </div>
+        <div class="subj" id="m_preview" aria-live="polite"></div>
+
+        <div class="grphead"><label>收件群組（依適用對象先勾好，可以再加減）</label>
+          <button type="button" onclick="gmOpen()">管理群組</button></div>
+        <div class="groups" id="m_groups">${groupBoxes(c.groups, c.mailGroups)}</div>
+        <p class="hint">共 <span id="m_count">0</span> 個收件信箱（一封最多 ${c.mailMaxRecipients||50} 個；一個群組信箱算 1 個）</p>
+        <div class="gm" id="gm" hidden></div>
+
+        <label for="m_text">信件內文（純文字；第一句寫這封信的目的）</label>
+        <textarea id="m_text" style="min-height:150px;font-family:inherit;font-size:14px">${esc(c.mailText)}</textarea>
+        <p class="hint">會附上 ${c.mailFiles.length} 個檔案（${c.mailMB} MB，上限 ${c.mailMaxMB} MB）${c.mailFiles.length ? '：'+c.mailFiles.map(esc).join('、') : ''}。
+          選「公告＋寄信」時，等校網公告上架後才寄，信裡會附公告網址。</p>
+        ${c.mailReady ? '' : '<p class="hint" style="color:var(--red);font-weight:600">寄信功能還沒設定：請先在 Apps Script 執行 setupMail，並在寄件帳號裝好寄信小幫手。</p>'}
+        ${c.mailReady && c.mailHelper && c.mailHelper.state && c.mailHelper.state!=='ok' ? '<p class="hint" style="color:var(--red);font-weight:600">寄信小幫手沒有正常運作，現在核准寄信會被擋下（看頁面最上方的寄信小幫手狀態）。</p>' : ''}
+        </div>
+        ${mailStateHtml(c)}
 
         ${(c.needsFileCheck && c.status==='REVIEW') || (c.canForce && c.forceFileCheck) ? `
         <label style="display:flex;gap:8px;align-items:center;font-weight:600;color:var(--ink);margin-top:14px">
@@ -301,21 +414,25 @@ function detail(c){
           <button onclick="reparse()">重新解析</button>` : ''}
           ${c.status==='DELETED'
             ? '<span style="align-self:center;color:var(--muted);font-weight:700">已刪除</span>'
-            : ({APPROVED:'已核准 — 等待公告助手自動發布', PUBLISHED:'已發布'})[c.status]
-            ? '<span style="align-self:center;color:var(--green);font-weight:700">' + ({APPROVED:'已核准 — 等待公告助手自動發布',
-              PUBLISHED:'已發布'})[c.status] + '</span>'
+            : DONE_TEXT[c.status] && !(c.status==='MAILING' && c.mailState==='失敗')
+            ? '<span style="align-self:center;color:var(--green);font-weight:700">' + DONE_TEXT[c.status] + '</span>'
+            : c.status==='MAILING'
+            ? ''
             : c.status==='REJECTED'
             ? `<span style="align-self:center;color:var(--muted);font-weight:700">已退回</span>
                <button class="primary" onclick="resubmit()">重新送審</button>`
             : c.status==='SUBMITTING'
             ? `<button class="primary" onclick="markPublished()">已上架，貼網址</button>
                <button onclick="unsubmit()">後台沒有這則，改回待發布</button>`
-            : `<button class="primary" id="btnOk" onclick="approve()" ${c.blocked?'disabled':''}>核准，送交發布</button>`}
+            : `<button class="primary" id="btnOk" onclick="approve()" ${c.blocked?'disabled':''}>${esc(modeLabel(c.mode))}</button>`}
+          ${c.mailState==='失敗' && (c.status==='MAILING' || c.status==='PUBLISHED') ? '<button class="primary" id="btnRetryMail" onclick="retryMail()">重新寄送</button>' : ''}
+          ${(c.mailState==='等公告' || c.mailState==='待寄') && c.status!=='DELETED' && c.status!=='REJECTED' ? '<button onclick="cancelMail()">取消寄送</button>' : ''}
+          ${c.mailState==='失敗' && (c.status==='MAILING' || c.status==='PUBLISHED') ? '<button onclick="cancelMail()">不寄了</button>' : ''}
           ${c.canForce ? '<button class="danger" onclick="force()">確認風險，強制送出</button>' : ''}
-          ${REJECTABLE[c.status] ? '<button class="danger" onclick="reject()">退回</button>' : ''}
+          ${REJECTABLE[c.status] || (c.status==='MAILING' && c.mailState==='失敗') ? '<button class="danger" onclick="reject()">退回</button>' : ''}
           ${c.siteUrl ? `<a href="${c.siteUrl}" target="_blank" style="align-self:center">看校網</a>` : ''}
           <span class="spacer"></span>
-          ${c.status!=='SUBMITTING' && c.status!=='DELETED' ? '<button class="danger" onclick="del()" title="公文資料夾移到雲端硬碟垃圾桶">刪除</button>' : ''}
+          ${c.status!=='SUBMITTING' && c.status!=='DELETED' && c.mailState!=='待寄' ? '<button class="danger" onclick="del()" title="公文資料夾移到雲端硬碟垃圾桶">刪除</button>' : ''}
         </div>
         ${c.blocked && c.canOverride ? `
         <p style="color:var(--red);font-size:13px">附件掃描到疑似個資而被擋下。請打開上面列出的附件確認：
@@ -332,24 +449,175 @@ function detail(c){
   // 草稿來自模型及輸入內容，預覽不得執行腳本、表單或載入外部資源。
   const upd = () => prev.srcdoc = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'">' + body.value;
   body.addEventListener('input', upd); upd();
+  mailPreview();
+  modeChanged();
+  countRecipients();
   // 記下載入時的內容與存草稿時間，重新解析前用來判斷會不會蓋掉修改
   DRAFT = { savedAt: c.draftSavedAt || '', orig: JSON.stringify(payload()) };
 }
 
+const val = id => document.getElementById(id).value;
+
 function payload(){
   return {
-    title: document.getElementById('f_title').value,
-    body: document.getElementById('f_body').value,
-    category: document.getElementById('f_cat').value,
-    scope: document.getElementById('f_scope').value,
-    startDate: document.getElementById('f_start').value,
-    endDate: document.getElementById('f_end').value
+    title: val('f_title'),
+    body: val('f_body'),
+    category: val('f_cat'),
+    scope: val('f_scope'),
+    startDate: val('f_start'),
+    endDate: val('f_end'),
+    // v10 發布方式與寄信
+    mode: curMode(),
+    mailUnit: val('m_unit'),
+    mailType: val('m_type'),
+    mailDesc: val('m_desc'),
+    mailText: val('m_text'),
+    mailGroups: Array.from(document.querySelectorAll('#m_groups input:checked')).map(x => x.value),
+    notPublicOk: !!(document.getElementById('np_ok') && document.getElementById('np_ok').checked)
   };
+}
+
+/** AI 研判不宜公開的原因（風險說明裡那一則） */
+function npWhy(c){
+  const n = (c.riskNotes || []).find(x => x.indexOf('不宜公開到校網：') === 0);
+  return n ? n.slice('不宜公開到校網：'.length).replace(/（[^（）]*寄[^（）]*）$/, '') : '';
+}
+
+/** 勾／取消「我已確認可以公開到校網」：解除或恢復公告選項 */
+function npChanged(){
+  const ok = document.getElementById('np_ok').checked;
+  document.querySelectorAll('input[name="mode"]').forEach(x => { if(x.value !== '只有寄信') x.disabled = !ok; });
+  if(!ok && curMode() !== '只有寄信'){
+    document.querySelector('input[name="mode"][value="只有寄信"]').checked = true;
+    modeChanged();
+  }
+}
+
+/** 目前選的發布方式 */
+function curMode(){
+  const r = document.querySelector('input[name="mode"]:checked');
+  return r ? r.value : '只有公告';
+}
+function modeLabel(m){
+  return ({'公告＋寄信':'核准，發布並寄信', '只有公告':'核准，送交發布', '只有寄信':'核准，寄信'})[m] || '核准，送交發布';
+}
+
+/** 換發布方式：只顯示會用到的區塊，核准按鈕跟著改字 */
+function modeChanged(){
+  const m = curMode();
+  document.getElementById('secPost').style.display = m==='只有寄信' ? 'none' : '';
+  document.getElementById('secMail').style.display = m==='只有公告' ? 'none' : '';
+  const b = document.getElementById('btnOk');
+  if(b && !b.disabled) b.textContent = modeLabel(m);
+}
+
+/** 換適用對象：收件群組還沒手動改過，就換成這個對象預設的群組 */
+function scopeChanged(){
+  const c = CURCASE || {};
+  if(GROUPS_TOUCHED || !c.scopeGroups) return;
+  const want = c.scopeGroups[val('f_scope')] || [];
+  document.querySelectorAll('#m_groups input').forEach(x => { x.checked = want.indexOf(x.value) >= 0; });
+  countRecipients();
+}
+
+/** 寄件標題即時預覽：教-[測驗評量]-九年級第一次模擬考日程表及範圍 */
+function mailPreview(){
+  const el = document.getElementById('m_preview');
+  if(!el) return;
+  const d = val('m_desc').trim();
+  el.textContent = val('m_unit') + '-[' + val('m_type') + ']-' + (d || '（請填內容簡要說明）');
+}
+
+/** 已核准之後的寄信狀態 */
+function mailStateHtml(c){
+  if(!c.mailState) return '';
+  if(c.mailState==='等公告') return '<div class="mailstate wait">寄信：等校網公告上架後自動寄出</div>';
+  if(c.mailState==='待寄') return '<div class="mailstate wait">寄信：已排進寄信佇列，寄信小幫手約 5 分鐘內寄出</div>';
+  if(c.mailState==='已寄') return '<div class="mailstate ok">寄信：已寄出'+(c.mailAt?'（'+esc(c.mailAt)+'）':'')+'</div>';
+  if(c.mailState==='失敗') return '<div class="mailstate bad">寄信失敗：'+esc(c.mailResult||'未說明')
+    + '<br>可以先修改上面的寄信內容或收件群組，再按「重新寄送」；不寄了按「不寄了」。</div>';
+  if(c.mailState==='取消') return '<div class="mailstate wait" style="color:var(--muted)">寄信：已取消（'+esc(c.mailResult||'')+'）</div>';
+  return '';
+}
+
+function groupNames(p){
+  const g = (CURCASE && CURCASE.groups) || [];
+  return p.mailGroups.map(id => (g.find(x => x.id===id) || {name:id}).name).join('、');
+}
+
+/** 收件群組的勾選框：值是群組 ID；一個信箱的直接顯示，多個信箱的顯示前兩個和總數 */
+function groupBoxes(groups, checked){
+  return (groups||[]).map(g => {
+    const em = g.emails || [];
+    const sub = em.length===1 ? em[0] : em.slice(0,2).join('、') + (em.length>2 ? ' 等 '+em.length+' 個信箱' : '');
+    return `<label title="${esc(em.join('\n'))}"><input type="checkbox" value="${esc(g.id)}" ${(checked||[]).indexOf(g.id)>=0?'checked':''}
+      onchange="groupsTouched()"><span>${esc(g.name)}<small>${esc(sub)}</small></span></label>`;
+  }).join('');
+}
+function groupsTouched(){ GROUPS_TOUCHED = true; countRecipients(); }
+
+/** 勾選的群組加起來有幾個信箱（重複的只算一次） */
+function countRecipients(){
+  const el = document.getElementById('m_count');
+  if(!el) return 0;
+  const g = (CURCASE && CURCASE.groups) || [];
+  const set = new Set();
+  document.querySelectorAll('#m_groups input:checked').forEach(x => {
+    const grp = g.find(y => y.id===x.value);
+    (grp ? grp.emails : []).forEach(e => set.add(e));
+  });
+  el.textContent = set.size;
+  el.classList.toggle('over', set.size > ((CURCASE && CURCASE.mailMaxRecipients) || 50));
+  return set.size;
+}
+
+/** 管理群組：新增、改名、改信箱、刪除；一個群組可以放多個信箱（用逗號、空白或換行分開） */
+function gmOpen(){
+  const box = document.getElementById('gm');
+  const groups = (CURCASE && CURCASE.groups) || [];
+  const dom = (CURCASE && CURCASE.mailDomain) || '學校網域';
+  box.innerHTML = '<p class="hint" style="margin:0 0 8px">只能填 @' + esc(dom) + ' 的信箱；一個群組可以放多個信箱（用逗號、空白或換行分開，最多 50 個）。'
+    + '刪掉的群組，還沒排進寄信佇列的信會寄不出去，要重新勾選。</p>'
+    + '<div id="gm_rows">' + groups.map(gmRow).join('') + '</div>'
+    + '<div class="acts"><button type="button" onclick="gmAdd()">＋ 新增群組</button>'
+    + '<button type="button" class="primary" id="gm_save" onclick="gmSave()">儲存群組</button>'
+    + '<button type="button" onclick="gmClose()">取消</button></div>';
+  box.hidden = false;
+}
+function gmRow(g){
+  return `<div class="row" data-id="${esc(g.id||'')}">
+    <input class="gm-name" aria-label="群組名稱" maxlength="30" placeholder="群組名稱" value="${esc(g.name||'')}">
+    <textarea class="gm-emails" aria-label="信箱" rows="2" placeholder="someone@${esc((CURCASE && CURCASE.mailDomain) || 'school.edu.tw')}, other@${esc((CURCASE && CURCASE.mailDomain) || 'school.edu.tw')}">${esc((g.emails||[]).join(', '))}</textarea>
+    <button type="button" class="danger" onclick="this.parentNode.remove()" aria-label="刪除這個群組">刪除</button></div>`;
+}
+function gmAdd(){
+  const rows = document.getElementById('gm_rows');
+  rows.insertAdjacentHTML('beforeend', gmRow({}));
+  rows.lastElementChild.querySelector('.gm-name').focus();
+}
+function gmClose(){ const box = document.getElementById('gm'); box.hidden = true; box.innerHTML = ''; }
+function gmSave(){
+  const list = Array.from(document.querySelectorAll('#gm_rows .row')).map(r => ({
+    id: r.dataset.id || '',
+    name: r.querySelector('.gm-name').value.trim(),
+    emails: r.querySelector('.gm-emails').value
+  })).filter(g => g.name || g.emails.trim());
+  const b = document.getElementById('gm_save');
+  b.disabled = true;
+  google.script.run.withSuccessHandler(r => {
+    const keep = Array.from(document.querySelectorAll('#m_groups input:checked')).map(x => x.value);
+    CURCASE.groups = r.groups;
+    CURCASE.scopeGroups = r.scopeGroups;
+    document.getElementById('m_groups').innerHTML = groupBoxes(r.groups, keep);
+    countRecipients();
+    gmClose();
+    toast('已儲存收件群組（' + r.groups.length + ' 個）');
+  }).withFailureHandler(e => { b.disabled = false; toast(e.message, 8000); }).api_saveGroups(list);
 }
 
 function busy(on, label){
   const b = document.getElementById('btnOk');
-  if(b){ b.disabled = on; b.innerHTML = on ? '<span class="spin"></span>'+label : '核准，送交發布'; }
+  if(b){ b.disabled = on; b.innerHTML = on ? '<span class="spin"></span>'+label : esc(modeLabel(curMode())); }
 }
 
 function save(){
@@ -364,14 +632,25 @@ function approve(){
     chk.focus();
     return;
   }
-  if(!confirm('確定核准？核准後公告助手會自動發布到校網（後台分頁需開著並勾選「核准後自動發布」）。')) return;
+  const p = payload();
+  const c = CURCASE || {};
+  const mailLine = '\n寄件標題：' + document.getElementById('m_preview').textContent
+    + '\n收件群組：' + (groupNames(p) || '（沒有勾）') + '\n附件：' + (c.mailFiles||[]).length + ' 個';
+  const msg = p.mode==='只有寄信'
+    ? '確定核准寄信？約 5 分鐘內會用 ' + c.mailSender + ' 寄出，寄出後無法收回。\n' + mailLine
+    : p.mode==='公告＋寄信'
+    ? '確定核准？公告助手會自動發布到校網；上架後再用 ' + c.mailSender + ' 寄信（信裡附公告網址）。\n' + mailLine
+    : '確定核准？核准後公告助手會自動發布到校網（後台分頁需開著並勾選「核准後自動發布」）。';
+  const npLine = c.notPublic && p.mode !== '只有寄信' && p.notPublicOk
+    ? '\n\n⚠ AI 研判這則不宜公開到校網，你已勾選確認可以公開。' : '';
+  if(!confirm(msg + npLine)) return;
   busy(true,'處理中');
   google.script.run.withSuccessHandler(r=>{
     busy(false);
     toast(r.message, 6000);
-    if(r.ok){ load(); document.getElementById('pane').innerHTML='<div class="empty">已核准，待發布</div>'; CUR=null; }
+    if(r.ok){ load(); document.getElementById('pane').innerHTML='<div class="empty">'+esc(r.message)+'</div>'; CUR=null; }
   }).withFailureHandler(e=>{busy(false); toast(e.message,6000);})
-    .api_approve(CUR, Object.assign(payload(), { filesChecked: !!(chk && chk.checked) }));
+    .api_approve(CUR, Object.assign(p, { filesChecked: !!(chk && chk.checked) }));
 }
 
 /** 改歸檔資料夾（立即存） */
@@ -408,8 +687,12 @@ function force(){
     if(chk) chk.focus();
     return;
   }
+  const fm = curMode();
+  const what = fm==='只有寄信' ? '會用 ' + c.mailSender + ' 把信和檔案（含公文本體）寄給：' + groupNames(payload())
+    : fm==='公告＋寄信' ? '公告助手會照常把公告和檔案（含公文本體）發到校網，上架後再寄信給：' + groupNames(payload())
+    : '公告助手會照常把公告和檔案（含公文本體）發到校網';
   if(!confirm('這則是紅燈：\n\n・' + (c.riskNotes||[]).join('\n・') +
-     '\n\n強制送出後，公告助手會照常把公告和檔案（含公文本體）發到校網。\n確定已經看過、可以公開嗎？')) return;
+     '\n\n強制送出後，' + what + '。\n確定已經看過、可以送出嗎？')) return;
   const why = prompt('請寫下可以公開的原因（會記錄在系統裡）：');
   if(why===null) return;
   let typed = '';
@@ -419,7 +702,7 @@ function force(){
   }
   google.script.run.withSuccessHandler(r=>{
     toast(r.message, 6000);
-    if(r.ok){ load(); document.getElementById('pane').innerHTML='<div class="empty">已強制核准，待發布</div>'; CUR=null; }
+    if(r.ok){ load(); document.getElementById('pane').innerHTML='<div class="empty">'+esc(r.message)+'</div>'; CUR=null; }
   }).withFailureHandler(e=>toast(e.message,6000))
     .api_forceApprove(CUR, Object.assign(payload(), { filesChecked: !!(chk && chk.checked) }), why, typed);
 }
@@ -446,6 +729,33 @@ function unsubmit(){
   if(!confirm('請先到校網後台「公告模組」確認真的沒有這則公告。\n\n改回待發布後，自動發布開著的話會重新送出一次；不想發了，改回後再按「退回」。\n\n確定後台沒有這則嗎？')) return;
   google.script.run.withSuccessHandler(()=>{ toast('已改回待發布'); load(); open_(CUR); })
     .withFailureHandler(e=>toast(e.message,6000)).api_unsubmit(CUR);
+}
+
+/** 寄信失敗：排除原因（可以先改寄信內容、收件群組）後重新寄送；上一封可能已寄出的話，先到寄件備份確認 */
+function retryMail(){
+  const c = CURCASE || {};
+  const p = payload();
+  const maybe = /可能已經寄出/.test(c.mailResult||'');
+  const m = (maybe
+    ? '上一封可能已經寄出。請先到 ' + c.mailSender + ' 的「寄件備份」確認真的沒有寄出，再按確定重新寄送。\n'
+    : '重新寄送這封信？（上次失敗原因：' + (c.mailResult||'未說明') + '）\n')
+    + '\n寄件標題：' + document.getElementById('m_preview').textContent + '\n收件群組：' + (groupNames(p) || '（沒有勾）');
+  if(!confirm(m)) return;
+  const b = document.getElementById('btnRetryMail');
+  if(b){ b.disabled = true; b.innerHTML = '<span class="spin"></span>處理中'; }
+  google.script.run.withSuccessHandler(r=>{ toast(r.message,6000); load(); open_(CUR); })
+    .withFailureHandler(e=>{ if(b){ b.disabled = false; b.textContent = '重新寄送'; } toast(e.message,6000); })
+    .api_retryMail(CUR, p);
+}
+
+/** 取消寄送／不寄了：還沒寄出的信不寄（只有寄信的案件會改成已退回） */
+function cancelMail(){
+  const c = CURCASE || {};
+  const m = c.mailState==='失敗' ? '這封信不寄了？' + (c.status==='MAILING' ? '\n這則只有寄信，取消後會改成「已退回」。' : '')
+    : '取消寄送這封信？' + (c.mailState==='待寄' ? '\n寄信小幫手如果已經開始寄，就沒辦法取消。' : '\n校網公告照常發布，只是不寄信。');
+  if(!confirm(m)) return;
+  google.script.run.withSuccessHandler(r=>{ toast(r.message,6000); load(); open_(CUR); })
+    .withFailureHandler(e=>toast(e.message,6000)).api_cancelMail(CUR);
 }
 
 function retry(){

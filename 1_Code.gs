@@ -39,7 +39,8 @@
 // ============================================================
 // 【布建時看這裡】不同學校要改的設定都在下面 CONFIG 的這幾項，
 //   SCHOOL_NAME、SITE_URL、CATEGORIES、RPAGE_GROUPS、RPAGE_ALSO_POST_TO、ARCHIVE_FOLDERS
-// 同一所學校（達觀）直接用，不用改。詳見安裝說明（套件裡的「安裝說明.md」，GitHub 上的 README.md）。
+//   寄信（選用）：MAIL_SENDER、MAIL_DOMAIN、MAIL_GROUPS、MAIL_UNITS、MAIL_TYPES
+// 同一所學校（達觀）只要填 MAIL_SENDER、MAIL_DOMAIN 和收件群組。詳見安裝說明（套件裡的「安裝說明.md」，GitHub 上的 README.md）。
 // ============================================================
 const CONFIG = {
   SCHOOL_NAME: '新北市立達觀國民中小學',
@@ -61,7 +62,7 @@ const CONFIG = {
   CLAUDE_MODEL: 'claude-sonnet-5-5',
   ANTHROPIC_BASE: 'https://api.anthropic.com/v1',
   ANTHROPIC_VERSION: '2023-06-01',
-  AI_MAX_TOKENS: 4096,
+  AI_MAX_TOKENS: 8192,            // v10 多了寄信欄位，長公文 4096 可能不夠
   AI_EFFORT: 'low',
   MAX_INLINE_MB: 18,          // 單次請求的檔案上限
   AI_RETRY: 2,
@@ -110,7 +111,9 @@ const CONFIG = {
     REJECTED:  'REJECTED',   // 退回不公告
     SUBMITTING:'SUBMITTING', // 公告助手自動模式已領取，正在後台送出／等待校網出現
     ERROR:     'ERROR',
-    DELETED:   'DELETED'     // 在審核台刪除：資料夾已丟到 Drive 垃圾桶，清單不再顯示（列保留做紀錄）
+    DELETED:   'DELETED',    // 在審核台刪除：資料夾已丟到 Drive 垃圾桶，清單不再顯示（列保留做紀錄）
+    MAILING:   'MAILING',    // 「只有寄信」已核准，等寄信小幫手寄出
+    MAILED:    'MAILED'      // 「只有寄信」已寄出
   },
 
   // ---- 黑快馬 R-page「公告模組」代號（後台：分類 → 公告 → 選擇所屬公告模組）----
@@ -127,6 +130,41 @@ const CONFIG = {
   // 每則公文解析完通知「待審核／已擋下」：關掉，到審核台看就好。
   // 其他通知（處理失敗、公告助手暫停、後台登入過期、核准太久沒發布）一律走 notify_：先傳 Telegram，傳不出去改寄 email。
   NOTIFY_NEW_CASE: false,
+
+  // ---- 寄信（v10）----
+  // 每則公文三選一：公告＋寄信／只有公告／只有寄信。AI 先建議，審核台可以改。
+  PUBLISH_MODES: ['公告＋寄信', '只有公告', '只有寄信'],
+  // 信由「寄信小幫手」用這個學校帳號寄出（小幫手裝在這個帳號的 Apps Script，見安裝說明「寄信小幫手」）
+  MAIL_SENDER: '',                       // 【布建時看這裡】寄件帳號（學校信箱），寄信小幫手要裝在這個帳號
+  MAIL_DOMAIN: 'example.com',            // 【布建時看這裡】學校信箱網域，例如 xxx.ntpc.edu.tw；只能寄給這個網域的信箱
+  MAIL_MAX_MB: 20,                       // 附件總大小上限（Gmail 一封 25MB，留空間給內文與編碼）
+  MAIL_MAX_RECIPIENTS: 50,               // 一封最多幾個收件信箱（Apps Script 一封信的上限是 50；一個群組信箱算 1 個）
+  MAIL_EXPIRE_HOURS: 12,                 // 排進佇列超過幾小時還沒寄出就不寄了（小幫手停太久，過時的通知不要補寄）
+  MAIL_QUEUE_NAME: '寄信佇列（公文自動公告）',
+  // 寄件標題：發布單位簡稱-[發布內容歸類]-內容簡要說明（學校〈校內 mail 標題及內文格式〉）
+  MAIL_UNITS: {
+    '校': '校長室', '教': '教務處', '學': '學務處', '總': '總務處',
+    '輔': '輔導處', '人': '人事室', '會': '會計室', '小': '教導處'
+  },
+  MAIL_TYPES: [
+    '政令宣導', '重要行事', '研習訊息', '測驗評量', '升學資訊', '獎助學金', '資料搜集', '福利權益',
+    '活動競賽', '採購核銷', '設備維護', '檔案稽催', '會通紀錄', '緊急通知', '歸類無奈'
+  ],
+  // 收件群組的預設清單（常用的排前面）。審核台「管理群組」改過之後，以審核台存的為準（指令碼屬性 MAIL_GROUPS_JSON）
+  // 【布建時看這裡】換成學校的群組信箱；裝好後也可以在審核台「管理群組」增減（以審核台存的為準）
+  MAIL_GROUPS: [
+    { name: '全校', email: 'all@example.com' },
+    { name: '國中部教師群組', email: 'junior@example.com' },
+    { name: '國小部教師群組', email: 'primary@example.com' }
+  ],
+  // 依「適用對象」預先勾選的群組 ID（預設群組的 ID 是信箱 @ 前面那段；群組被刪掉就不勾）
+  MAIL_SCOPE_GROUPS: {
+    '全校':   ['all'],
+    '國中部': ['junior'],
+    '國小部': ['primary'],
+    '教師':   ['junior', 'primary'],
+    '家長':   ['all']
+  },
 
   // ---- 審核台「歷史公文」分頁 ----
   RECENT_HOURS: 48,                // 「最近完成」只顯示幾小時內的；更早的放到「歷史公文」分頁
@@ -152,7 +190,10 @@ const COLUMNS = [
   '公告起日', '公告迄日',
   '風險等級', '風險說明',
   '附件清單', '審核人', '審核時間', '發布時間', '校網網址', '備註',
-  '歸檔分類', '公文本體ID'          // v9 新增：審核台歷史分頁的資料夾、解析時認定的公文本體
+  '歸檔分類', '公文本體ID',         // v9 新增：審核台歷史分頁的資料夾、解析時認定的公文本體
+  // v10 新增：發布方式與寄信
+  '發布方式', '寄信單位', '寄信歸類', '寄信說明', '寄信內文', '收件群組',
+  '寄信狀態', '寄信時間', '寄信結果'
 ];
 
 /** 讀取 Script Property，缺少時給出明確錯誤 */
@@ -164,6 +205,12 @@ function prop_(key, required) {
     );
   }
   return v || '';
+}
+
+/** 放鎖前先把試算表寫入送出去：不然下一個拿到鎖的執行可能讀到舊值（官方文件 Lock.releaseLock 的建議） */
+function unlock_(lock) {
+  try { SpreadsheetApp.flush(); } catch (e) {}
+  lock.releaseLock();
 }
 
 function setProp_(key, value) {
@@ -346,9 +393,9 @@ function pollInbox() {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(5000)) return;
   const running = Number(props.getProperty('INTAKE_RUNNING') || 0);
-  if (running && Date.now() - running < 7 * 60 * 1000) { lock.releaseLock(); return; }   // 上一輪還在跑
+  if (running && Date.now() - running < 7 * 60 * 1000) { unlock_(lock); return; }   // 上一輪還在跑
   props.setProperty('INTAKE_RUNNING', String(Date.now()));
-  lock.releaseLock();
+  unlock_(lock);
 
   const t0 = Date.now();
   try {
@@ -363,6 +410,8 @@ function pollInbox() {
       }
     }
     try { checkWaiting_(); } catch (e) { console.warn('待發布提醒失敗：' + e.message); }
+    try { syncMailResults_(); } catch (e) { console.warn('同步寄信結果失敗：' + e.message); }
+    try { checkMailWaiting_(); } catch (e) { console.warn('寄信提醒失敗：' + e.message); }
     try { backfillArchive_(5, t0 + INTAKE_BUDGET_MS); } catch (e) { console.warn('補歸檔資料夾失敗：' + e.message); }
   } finally {
     props.deleteProperty('INTAKE_RUNNING');
@@ -689,6 +738,12 @@ function docSchema_() {
       公告標題: { type: 'string', description: '25 字內，不要加【】前綴，系統會自己加' },
       公告內文: { type: 'string', description: '家長與學生看得懂的白話說明，HTML 片段' },
       重點條列: { type: 'array', items: S },
+      建議發布方式: { type: 'string', enum: CONFIG.PUBLISH_MODES },
+      寄信單位: { type: 'string', enum: Object.keys(CONFIG.MAIL_UNITS),
+                  description: Object.keys(CONFIG.MAIL_UNITS).map(function (k) { return k + '＝' + CONFIG.MAIL_UNITS[k]; }).join('、') },
+      寄信歸類: { type: 'string', enum: CONFIG.MAIL_TYPES },
+      寄信說明: { type: 'string', description: '寄件標題的「內容簡要說明」，25 字內，寫出具體事項' },
+      寄信內文: { type: 'string', description: '寫給校內教職員的信件內文，純文字，3 到 8 行' },
       偵測到的個資: {
         type: 'array',
         description: '文件中出現的個人資料，照實列出類型與出現位置',
@@ -704,7 +759,8 @@ function docSchema_() {
     },
     required: [
       '發文機關', '發文字號', '發文日期', '密等', '主旨', '說明摘要',
-      '適合公開', '建議分類', '適用對象', '公告標題', '公告內文', '重點條列', '偵測到的個資', '歸檔資料夾'
+      '適合公開', '建議分類', '適用對象', '公告標題', '公告內文', '重點條列', '偵測到的個資', '歸檔資料夾',
+      '建議發布方式', '寄信單位', '寄信歸類', '寄信說明', '寄信內文'
     ]
   };
 }
@@ -736,6 +792,20 @@ function buildPrompt_(attachmentNames) {
     '   - 日期時間寫完整，例如「2026年11月5日（星期四）下午2時」；縮寫第一次出現要寫全名。',
     '10. 歸檔資料夾：從清單挑一個最符合這份公文主題的學校資料夾（例如資訊安全選「06.資安」、',
     '    無人機研習選「46.無人機」、經費核銷選「26.核銷」），都不像就填「未分類」。',
+    '11. 建議發布方式（三選一）：',
+    '   - 公告＋寄信：家長或學生需要知道，教職員也要知道或要配合（例如招生、活動、競賽、獎助學金、重要行事）。',
+    '   - 只有公告：寫給家長學生的宣導或資訊，教職員不必另外通知。',
+    '   - 只有寄信：只跟教職員有關（教師研習、開會通知、調查填報、行政作業、採購核銷、人事福利），',
+    '     或內容不適合放到校網、但可以寄給校內教職員。這種情況「適合公開」仍照實填 false。',
+    '12. 寄信標題照學校規範「發布單位簡稱-[發布內容歸類]-內容簡要說明」，例如「教-[測驗評量]-九年級第一次模擬考日程表及範圍」：',
+    '   - 寄信單位：挑最可能承辦的處室（國小部的事務用「小」教導處）。',
+    '   - 寄信歸類：政令宣導；重要行事（行事曆、開學、休業式、校慶、畢業典禮、家長日）；研習訊息（教師專業發展、社群、研習）；',
+    '     測驗評量（段考、複習考、補考）；升學資訊；獎助學金；資料搜集（學生名條、問卷調查）；福利權益（職員訊息、聯誼、薪資、停車）；',
+    '     活動競賽（社團、學藝活動、校內外比賽、營隊）；採購核銷；設備維護；檔案稽催（公文稽催、作業繳交）；',
+    '     會通紀錄（開會通知、會議紀錄）；緊急通知；都不像才用「歸類無奈」。',
+    '   - 寄信說明：25 字內，寫出具體事項，不要寫「有關…一案」。',
+    '13. 寄信內文：寫給校內教職員，純文字（不要 HTML），3 到 8 行。第一句就說明這封信的目的，',
+    '    接著寫誰要做什麼、期限，最後列出附件名稱。不要只寫「詳見附件」，也不要公文腔；不要寫個人手機或身分證號。',
     '',
     attachmentNames.length
       ? '這份公文另有附件：' + attachmentNames.join('、') + '。公告內文可以提到附件，但不要編造附件內容。'
@@ -786,8 +856,13 @@ function processCaseInner_(caseId) {
     return;
   }
 
-  // 風險檢核
-  const risk = assessRisk_(parsed);
+  // 風險檢核。AI 研判不適合放校網、但公文沒有密等：不擋下，改成黃燈警告，內文照樣掃個資；
+  // 預設「只有寄信」。審核人勾「我已確認可以公開到校網」解除警告後，也可以選公告（v10.1）。
+  const internalOnly = parsed['適合公開'] === false && !isSecretLevel_(parsed['密等']);
+  const risk = assessRisk_(internalOnly ? Object.assign({}, parsed, { '適合公開': true }) : parsed);
+  if (internalOnly) {
+    mergeRisk_(risk, { level: '黃', notes: [NOT_PUBLIC_NOTE_ + (parsed['不適合公開原因'] || '未說明') + '（建議只寄信給校內群組）'] });
+  }
 
   // 個資掃描：附件內容與公文本體（這些檔案會原樣上傳校網）
   try {
@@ -816,9 +891,11 @@ function processCaseInner_(caseId) {
   if (period.note) mergeRisk_(risk, { level: '黃', notes: [period.note] });
 
   const prefix = CONFIG.SCOPE_PREFIX[parsed['適用對象']] || '';
-  const status = risk.level === '紅' || !parsed['適合公開']
+  const status = risk.level === '紅' || (!parsed['適合公開'] && !internalOnly)
     ? CONFIG.STATUS.BLOCKED
     : CONFIG.STATUS.REVIEW;
+  const mode = internalOnly ? '只有寄信'
+    : CONFIG.PUBLISH_MODES.indexOf(parsed['建議發布方式']) >= 0 ? parsed['建議發布方式'] : '只有公告';
 
   updateCase_(caseId, {
     '狀態': status,
@@ -840,7 +917,14 @@ function processCaseInner_(caseId) {
     '附件清單': JSON.stringify(info.attachments),
     // 歸檔資料夾：審核人手動選過的不蓋掉；AI 選的（含舊案件補的）用這次讀完整份公文的結果
     '歸檔分類': archiveManual_(caseId) || archiveOf_(parsed['歸檔資料夾']),
-    '公文本體ID': info.main.id
+    '公文本體ID': info.main.id,
+    '發布方式': mode,
+    '寄信單位': CONFIG.MAIL_UNITS[parsed['寄信單位']] ? parsed['寄信單位'] : '教',
+    '寄信歸類': CONFIG.MAIL_TYPES.indexOf(parsed['寄信歸類']) >= 0 ? parsed['寄信歸類'] : '歸類無奈',
+    '寄信說明': textCell_(oneLine_(parsed['寄信說明']).slice(0, 60)),
+    '寄信內文': textCell_(String(parsed['寄信內文'] || '').trim()),
+    '收件群組': scopeGroupIds_(parsed['適用對象']).join(','),
+    '寄信狀態': '', '寄信時間': '', '寄信結果': ''
   });
   markDraft_(caseId, false);   // 內容已換成 AI 新版，舊草稿記號作廢
 
@@ -1381,19 +1465,24 @@ function assessRisk_(parsed) {
 }
 
 /** 給審核頁即時重算用：使用者改完內文後重新檢查 */
-function recheck(caseId, title, body) {
+function recheck(caseId, title, body, mail) {
   requireReviewer_();
   const c = getCase_(caseId);
+  // v10：會寄出的信件標題與內文也一起掃；「只有寄信」不上校網，只掃信件
+  const mode = mail && CONFIG.PUBLISH_MODES.indexOf(mail.mode) >= 0 ? mail.mode : '只有公告';
+  const mailOnly = mode === '只有寄信';
+  const mailText = mode === '只有公告' ? '' : [mail.desc, mail.text].join('\n');
   const risk = assessRisk_({
     '密等': c['密等'],
     '適合公開': c['狀態'] !== CONFIG.STATUS.BLOCKED,
-    '公告標題': title,
-    '公告內文': body,
+    '公告標題': mailOnly ? mail.desc : title,
+    '公告內文': mailOnly ? '<p>' + escapeHtml_(mail.text || '') + '</p>' : body,
     '主旨': c['主旨'],
-    '說明摘要': '',
+    '說明摘要': mailOnly ? '' : mailText,
     '重點條列': [],
     '偵測到的個資': []
   });
+  if (mailOnly) risk.reasons = risk.reasons.filter(function (r) { return r.indexOf('無障礙：') !== 0; });
 
   // 原公文、附件的個資與期限提醒只有解析時算得出來，改內文不會讓它消失；
   // 這些檔案會上傳校網，所以存檔重算時要保留，並照各自的等級算燈號（ODF 提醒不影響燈號）。
@@ -1410,7 +1499,31 @@ const LEVEL_RANK_ = { '綠': 0, '黃': 1, '紅': 2 };
 function maxLevel_(a, b) { return (LEVEL_RANK_[b] || 0) > (LEVEL_RANK_[a] || 0) ? b : a; }
 
 /** 解析時產生、存草稿要保留的提醒 */
-const DOC_NOTE_RE_ = /^(原公文含|公文本體含個資：|附件含個資：|附件需確認：|附件未掃描：|期限：|附件：)/;
+const DOC_NOTE_RE_ = /^(原公文含|公文本體含個資：|附件含個資：|附件需確認：|附件未掃描：|期限：|附件：|不宜公開到校網：|人工確認可公開到校網：)/;
+
+/** AI 研判不適合放校網（沒有密等）的公文（v10）：預設只有寄信；審核人勾選確認後也可以公告（v10.1） */
+const NOT_PUBLIC_NOTE_ = '不宜公開到校網：';
+const NOT_PUBLIC_OK_NOTE_ = '人工確認可公開到校網：';
+function isNotPublic_(c) { return String(c['風險說明'] || '').split('；').some(function (n) { return n.indexOf(NOT_PUBLIC_NOTE_) === 0; }); }
+/** 不宜公開的警告已由審核人解除（勾「我已確認可以公開到校網」） */
+function isNotPublicOk_(c) { return String(c['風險說明'] || '').split('；').some(function (n) { return n.indexOf(NOT_PUBLIC_OK_NOTE_) === 0; }); }
+/**
+ * 這次要不要公開到校網：不宜公開的公文，要審核人勾選確認（d.notPublicOk）才可以；
+ * 舊版審核台沒送這個欄位時，看之前有沒有確認過。
+ */
+function notPublicOkOf_(c, d) {
+  return d && d.notPublicOk !== undefined ? d.notPublicOk === true : isNotPublicOk_(c);
+}
+/** 風險說明加上（或拿掉）「人工確認可公開到校網：帳號 時間」；已經有的保留原本的時間 */
+function withNotPublicOk_(notes, on) {
+  const list = String(notes || '').split('；').filter(String);
+  const had = list.filter(function (n) { return n.indexOf(NOT_PUBLIC_OK_NOTE_) === 0; });
+  const rest = list.filter(function (n) { return n.indexOf(NOT_PUBLIC_OK_NOTE_) !== 0; });
+  if (!on) return joinNotes_(rest);
+  return joinNotes_(rest.concat(had.length ? had.slice(0, 1) : [NOT_PUBLIC_OK_NOTE_ + Session.getActiveUser().getEmail() + ' ' +
+    Utilities.formatDate(new Date(), 'Asia/Taipei', 'MM/dd HH:mm')]));
+}
+function isSecretLevel_(sec) { return ['密', '機密', '極機密', '限閱'].indexOf(String(sec || '')) >= 0; }
 function isDocNote_(r) { return DOC_NOTE_RE_.test(String(r)); }
 
 function noteLevel_(r) {
@@ -1424,7 +1537,7 @@ function noteLevel_(r) {
     return '黃';   // 出生日期交給檔案掃描判斷：AI 常把「某年某月出生者」這類資格說明也列進來
   }
   if (/^(公文本體含個資|附件含個資)：/.test(r)) return '紅';
-  if (/^(附件需確認|附件未掃描|期限)：/.test(r)) return '黃';
+  if (/^(附件需確認|附件未掃描|期限|不宜公開到校網)：/.test(r)) return '黃';
   return '綠';   // 「附件：」ODF 提醒、無障礙提醒
 }
 
@@ -1711,24 +1824,33 @@ function requireReviewer_() {
 function api_list() {
   requireReviewer_();
   const S = CONFIG.STATUS;
-  const PENDING = [S.REVIEW, S.BLOCKED, S.NEW, S.PARSING, S.ERROR, S.APPROVED, S.SUBMITTING];
-  const DONE = [S.PUBLISHED, S.REJECTED];
+  const PENDING = [S.REVIEW, S.BLOCKED, S.NEW, S.PARSING, S.ERROR, S.APPROVED, S.SUBMITTING, S.MAILING];
+  const DONE = [S.PUBLISHED, S.REJECTED, S.MAILED];
+  try { syncMailResults_(); } catch (e) { console.warn('同步寄信結果失敗：' + e.message); }
   const all = listCases_();
   const cut = Date.now() - CONFIG.RECENT_HOURS * 3600 * 1000;
-  const done = all.filter(function (c) { return DONE.indexOf(c['狀態']) >= 0; });
+  // 已發布但信沒寄成功的，也留在待處理，才不會漏看
+  // 已發布但信還沒寄完（等公告、待寄）也留在待處理，寄出才算完成
+  const mailFailed = function (c) {
+    return ['失敗', '等公告', '待寄'].indexOf(String(c['寄信狀態'] || '')) >= 0 && c['狀態'] === S.PUBLISHED ||
+           c['寄信狀態'] === '失敗' && c['狀態'] === S.MAILING;
+  };
+  const done = all.filter(function (c) { return DONE.indexOf(c['狀態']) >= 0 && !mailFailed(c); });
   return {
-    pending: slim_(all.filter(function (c) { return PENDING.indexOf(c['狀態']) >= 0; })),
+    pending: slim_(all.filter(function (c) { return PENDING.indexOf(c['狀態']) >= 0 || mailFailed(c); })),
     done: slim_(done.filter(function (c) { return doneAt_(c) >= cut; })),
     archive: slim_(done.filter(function (c) { return doneAt_(c) < cut; }).slice(0, 1000)),
     folders: CONFIG.ARCHIVE_FOLDERS.concat([CONFIG.UNFILED]),
     recentHours: CONFIG.RECENT_HOURS,
-    helper: helperStatus_()
+    helper: helperStatus_(),
+    mailHelper: mailHelperStatus_()
   };
 }
 
-/** 完成時間：已發布看發布時間，退回看審核時間，都沒有就用建立時間 */
+/** 完成時間：已發布看發布時間，只有寄信看寄信時間，退回看審核時間，都沒有就用建立時間 */
 function doneAt_(c) {
-  const t = c['狀態'] === CONFIG.STATUS.PUBLISHED ? c['發布時間'] : c['審核時間'];
+  const t = c['狀態'] === CONFIG.STATUS.PUBLISHED ? c['發布時間']
+    : c['狀態'] === CONFIG.STATUS.MAILED ? (c['寄信時間'] || c['審核時間']) : c['審核時間'];
   const v = new Date(t || c['建立時間']).getTime();
   return isNaN(v) ? 0 : v;
 }
@@ -1750,6 +1872,8 @@ function slim_(rows) {
       category: r['建議分類'],
       created: r['建立時間'] ? Utilities.formatDate(new Date(r['建立時間']), 'Asia/Taipei', 'MM/dd HH:mm') : '',
       archive: archiveOf_(r['歸檔分類']),
+      mode: modeOf_(r),
+      mail: r['寄信狀態'] || '',
       // 送出中超過 30 分鐘還沒確認上架 → 清單上提醒人工確認
       stale: r['狀態'] === CONFIG.STATUS.SUBMITTING &&
              Date.now() - Number(props['CLAIM_' + r.caseId] || 0) > SUBMIT_STALE_MS
@@ -1809,7 +1933,32 @@ function api_detail(caseId) {
     secret: isSecret_(c),                   // 公文標示密等：強制送出要再輸入「確認公開」
     categories: CONFIG.CATEGORIES,
     scopes: Object.keys(CONFIG.SCOPE_PREFIX),
-    blocked: c['狀態'] === CONFIG.STATUS.BLOCKED
+    blocked: c['狀態'] === CONFIG.STATUS.BLOCKED,
+    // v10 寄信
+    mode: modeOf_(c),
+    modes: CONFIG.PUBLISH_MODES,
+    notPublic: isNotPublic_(c),             // AI 研判不宜公開到校網：預設只有寄信，勾選確認後才能公告
+    notPublicOk: isNotPublicOk_(c),         // 已勾選「我已確認可以公開到校網」
+    mailUnit: String(c['寄信單位'] || '教'),
+    mailType: String(c['寄信歸類'] || '歸類無奈'),
+    mailDesc: String(c['寄信說明'] || ''),
+    mailText: String(c['寄信內文'] || ''),
+    mailGroups: groupIdsOf_(c['收件群組'], mailGroups_()),
+    mailState: String(c['寄信狀態'] || ''),
+    mailAt: c['寄信時間'] ? Utilities.formatDate(new Date(c['寄信時間']), 'Asia/Taipei', 'MM/dd HH:mm') : '',
+    mailResult: String(c['寄信結果'] || ''),
+    mailSender: CONFIG.MAIL_SENDER,
+    mailUnits: Object.keys(CONFIG.MAIL_UNITS).map(function (k) { return { key: k, name: CONFIG.MAIL_UNITS[k] }; }),
+    mailTypes: CONFIG.MAIL_TYPES,
+    groups: mailGroups_(),
+    scopeGroups: scopeGroupMap_(),
+    mailMaxRecipients: CONFIG.MAIL_MAX_RECIPIENTS,
+    mailDomain: CONFIG.MAIL_DOMAIN,
+    mailFiles: mailFiles_(files).map(function (f) { return f.name; }),
+    mailMB: Math.round(mailFiles_(files).reduce(function (s, f) { return s + (Number(f.size) || 0); }, 0) / 1048576 * 10) / 10,
+    mailMaxMB: CONFIG.MAIL_MAX_MB,
+    mailReady: mailReady_(),
+    mailHelper: mailHelperStatus_()
   };
 }
 
@@ -1821,7 +1970,16 @@ function fmtDate_(v) {
 
 /** 只存草稿不發布 */
 function validateDraft_(d) {
-  if (!d || !String(d.title || '').trim() || !String(d.body || '').trim()) throw new Error('標題與內文不可空白。');
+  if (!d) throw new Error('沒有收到要儲存的內容。');
+  const mode = d.mode === undefined ? '只有公告' : d.mode;      // 舊版審核台沒有傳發布方式
+  if (CONFIG.PUBLISH_MODES.indexOf(mode) < 0) throw new Error('發布方式不正確。');
+  if (mode !== '只有公告') validateMail_(d);
+  if (mode === '只有寄信') {
+    // 不上校網：公告欄位不檢查（畫面上會收起來），只要適用對象正確
+    if (!CONFIG.SCOPE_PREFIX[d.scope]) throw new Error('適用對象不正確。');
+    return;
+  }
+  if (!String(d.title || '').trim() || !String(d.body || '').trim()) throw new Error('標題與內文不可空白。');
   if (CONFIG.CATEGORIES.indexOf(d.category) < 0 || !CONFIG.SCOPE_PREFIX[d.scope]) throw new Error('公告分類或適用對象不正確。');
   const validDate = function (s) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(s || ''))) return false;
@@ -1834,22 +1992,59 @@ function validateDraft_(d) {
 
 function api_save(caseId, d) {
   requireReviewer_();
-  const c = getCase_(caseId);
-  if ([CONFIG.STATUS.REVIEW, CONFIG.STATUS.BLOCKED].indexOf(c['狀態']) < 0) {
-    throw new Error('只有待審核案件可以修改，請重新載入。');
-  }
   validateDraft_(d);
-  updateCase_(caseId, {
-    '公告標題': d.title,
-    '公告內文': sanitizeBody_(d.body),
-    '建議分類': d.category,
-    '適用對象': d.scope,
-    '公告起日': d.startDate,
-    '公告迄日': d.endDate
-  });
+  // 鎖內重讀：另一個分頁剛核准（已排信）的案件，不能再改發布方式或收件群組
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) throw new Error('系統忙碌中，請過幾秒再按一次。');
+  try {
+    const c = getCase_(caseId);
+    if ([CONFIG.STATUS.REVIEW, CONFIG.STATUS.BLOCKED].indexOf(c['狀態']) < 0) {
+      throw new Error('只有待審核案件可以修改，請重新載入。');
+    }
+    const mode = d.mode === undefined ? '只有公告' : d.mode;
+    const patch = draftPatch_(d);
+    if (isNotPublic_(c)) {
+      const ok = notPublicOkOf_(c, d);
+      if (mode !== '只有寄信' && !ok) {
+        throw new Error('AI 研判這則不宜公開到校網。確認可以公開的話，請先勾選「我已確認可以公開到校網」，再選公告。');
+      }
+      patch['風險說明'] = withNotPublicOk_(c['風險說明'], ok && mode !== '只有寄信');
+    }
+    updateCase_(caseId, patch);
+  } finally {
+    unlock_(lock);
+  }
   markDraft_(caseId, true);
-  const risk = recheck(caseId, d.title, d.body);
+  const risk = recheck(caseId, d.title, d.body, mailOf_(d));
   return { ok: true, risk: risk, savedAt: draftSavedAt_(caseId) };
+}
+
+/**
+ * 審核台送來的內容 → 要寫進試算表的欄位。
+ * 「只有寄信」時公告欄位畫面上收起來了，有填才更新（沒填就保留 AI 寫的，之後改回有公告時還在）。
+ */
+function draftPatch_(d) {
+  const mode = d.mode === undefined ? '只有公告' : d.mode;
+  const p = { '適用對象': d.scope, '發布方式': mode };
+  if (mode !== '只有寄信' || String(d.title || '').trim()) {
+    p['公告標題'] = d.title;
+    p['公告內文'] = sanitizeBody_(d.body);
+    p['建議分類'] = d.category;
+    p['公告起日'] = d.startDate;
+    p['公告迄日'] = d.endDate;
+  }
+  if (d.mailUnit !== undefined) {          // 舊版審核台沒有寄信欄位
+    p['寄信單位'] = d.mailUnit;
+    p['寄信歸類'] = d.mailType;
+    p['寄信說明'] = textCell_(oneLine_(d.mailDesc));
+    p['寄信內文'] = textCell_(String(d.mailText || '').trim());
+    p['收件群組'] = (d.mailGroups || []).join(',');
+  }
+  return p;
+}
+
+function mailOf_(d) {
+  return { mode: d.mode === undefined ? '只有公告' : d.mode, desc: d.mailDesc || '', text: d.mailText || '' };
 }
 
 /** 核准 → 依設定直接發布 */
@@ -1858,6 +2053,7 @@ function api_approve(caseId, d) {
   const c = getCase_(caseId);
   if (c['狀態'] === CONFIG.STATUS.PUBLISHED) return { ok: true, message: '此案件已發布。', url: c['校網網址'] };
   if (c['狀態'] === CONFIG.STATUS.APPROVED) return { ok: true, message: '此案件已核准，等待發布。' };
+  if (c['狀態'] === CONFIG.STATUS.MAILING || c['狀態'] === CONFIG.STATUS.MAILED) return { ok: true, message: '此案件已核准寄信。' };
   if (c['狀態'] === CONFIG.STATUS.BLOCKED && CONFIG.BLOCK_ON_RED) {
     return { ok: false, message: canOverrideFileRed_(c)
       ? '這則因為附件掃描到疑似個資被擋下。打開附件確認：若是範例或可以公開，請按「確認附件可公開，解除紅燈」並寫下原因。'
@@ -1867,6 +2063,9 @@ function api_approve(caseId, d) {
   if (needsFileCheck_(c) && !(d && d.filesChecked === true)) {
     return { ok: false, message: '有附件沒辦法自動掃描或疑似名冊，請先逐一打開檢查，再勾選「我已打開檢查附件」後核准。' };
   }
+  const mode = d && d.mode !== undefined ? d.mode : '只有公告';
+  const pre = modePrecheck_(c, mode, d);
+  if (pre) return { ok: false, message: pre };
 
   api_save(caseId, d);
   const after = getCase_(caseId);
@@ -1875,12 +2074,12 @@ function api_approve(caseId, d) {
              '。確認可以公開的話，請用「確認風險，強制送出」。' };
   }
 
-  updateCase_(caseId, {
-    '狀態': CONFIG.STATUS.APPROVED,
+  const done = approveWithMode_(caseId, mode, [CONFIG.STATUS.REVIEW], {
     '審核人': Session.getActiveUser().getEmail(),
     '審核時間': new Date()
   });
   markDraft_(caseId, false);
+  if (mode !== '只有公告') return done;
 
   if (!CONFIG.AUTO_PUBLISH_ON_APPROVE) {
     return { ok: true, message: '已核准，等待發布。' };
@@ -1932,15 +2131,21 @@ function api_reject(caseId, note) {
                       '後台沒有這則再用「後台沒有這則，改回待發布」，之後才能退回。');
     }
     // 只接受審核台會出現「退回」的狀態；已刪除、已退回的不能再退回（免得刪掉的案件又跑回來）
-    if (REJECTABLE_.indexOf(c['狀態']) < 0) throw new Error('這則目前是「' + c['狀態'] + '」，不能退回，請重新整理。');
+    // 只有寄信：排進佇列後就不能退回（小幫手可能正在寄）；寄信失敗的才可以
+    const mailFailedOnly = c['狀態'] === CONFIG.STATUS.MAILING && c['寄信狀態'] === '失敗';
+    if (c['狀態'] === CONFIG.STATUS.MAILING && !mailFailedOnly) {
+      throw new Error('這則已經排進寄信佇列，寄信小幫手可能正在寄，不能退回。');
+    }
+    if (REJECTABLE_.indexOf(c['狀態']) < 0 && !mailFailedOnly) throw new Error('這則目前是「' + c['狀態'] + '」，不能退回，請重新整理。');
     updateCase_(caseId, {
       '狀態': CONFIG.STATUS.REJECTED,
       '審核人': Session.getActiveUser().getEmail(),
       '審核時間': new Date(),
-      '備註': note || '審核退回'
+      '備註': note || '審核退回',
+      '寄信狀態': c['寄信狀態'] === '等公告' ? '' : c['寄信狀態']    // 還沒上架就退回：信也不寄了
     });
   } finally {
-    lock.releaseLock();
+    unlock_(lock);
   }
   markDraft_(caseId, false);
   try { moveCaseFolder_(c['資料夾ID'], 'REJECTED'); } catch (e) {}
@@ -1975,7 +2180,7 @@ function api_overrideFileRed(caseId, reason) {
               Utilities.formatDate(new Date(), 'Asia/Taipei', 'MM/dd HH:mm') + '）'
     });
   } finally {
-    lock.releaseLock();
+    unlock_(lock);
   }
   try { moveCaseFolder_(c['資料夾ID'], 'REVIEW'); } catch (e) {}
   return api_detail(caseId);
@@ -2020,13 +2225,16 @@ function api_deleteCase(caseId) {
     if ((st === CONFIG.STATUS.PARSING || st === CONFIG.STATUS.NEW) && !isStaleParsing_(c)) {
       throw new Error('這則正在解析中，請等解析完再刪除。');
     }
+    if (c['寄信狀態'] === '待寄') {
+      throw new Error('這則的信已經排進寄信佇列、還沒寄完，不能刪除。請等寄出（約 5 分鐘）後再刪。');
+    }
     updateCase_(caseId, {
       '狀態': CONFIG.STATUS.DELETED,
       '備註': '已刪除（原狀態 ' + st + '；' + Session.getActiveUser().getEmail() + ' ' +
               Utilities.formatDate(new Date(), 'Asia/Taipei', 'MM/dd HH:mm') + '）'
     });
   } finally {
-    lock.releaseLock();
+    unlock_(lock);
   }
   let trashed = false;
   try { DriveApp.getFolderById(c['資料夾ID']).setTrashed(true); trashed = true; } catch (e) {}
@@ -2036,6 +2244,7 @@ function api_deleteCase(caseId) {
     p.deleteProperty('CLAIM_' + caseId);
     p.deleteProperty('PARSING_' + caseId);
     p.deleteProperty('ARCHMAN_' + caseId);
+    p.deleteProperty('MAILQ_' + caseId);
   } catch (e) {}
   return { ok: true, trashed: trashed };
 }
@@ -2054,10 +2263,11 @@ function api_resubmit(caseId) {
     updateCase_(caseId, {
       '狀態': next,
       '風險說明': joinNotes_(notes.length ? notes : ['未偵測到明顯風險']),
-      '備註': '重新送審 ' + Utilities.formatDate(new Date(), 'Asia/Taipei', 'MM/dd HH:mm')
+      '備註': '重新送審 ' + Utilities.formatDate(new Date(), 'Asia/Taipei', 'MM/dd HH:mm'),
+      '寄信狀態': '', '寄信時間': '', '寄信結果': ''
     });
   } finally {
-    lock.releaseLock();
+    unlock_(lock);
   }
   if (next === CONFIG.STATUS.REVIEW) { try { moveCaseFolder_(c['資料夾ID'], 'REVIEW'); } catch (e) {} }
   return api_detail(caseId);
@@ -2080,12 +2290,16 @@ function api_forceApprove(caseId, d, reason, typed) {
   reason = cleanNote_(String(reason || '').trim()).slice(0, 100);
   if (reason.length < 4) throw new Error('請寫下確認可以公開的原因。');
   validateDraft_(d);
+  const mode = d && d.mode !== undefined ? d.mode : '只有公告';
+  let c = getCase_(caseId);
+  const pre = modePrecheck_(c, mode, d);
+  if (pre) throw new Error(pre);
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error('系統忙碌中，請過幾秒再按一次。');
-  let c;
+  let msg = '已強制核准，等待公告助手發布。';
   try {
     c = getCase_(caseId);
-    if (!isRedCase_(c)) throw new Error('這則不是紅燈案件，請直接按「核准，送交發布」。');
+    if (!isRedCase_(c)) throw new Error('這則不是紅燈案件，請直接按核准。');
     if (forceNeedsFileCheck_(c) && !(d && d.filesChecked === true)) {
       throw new Error('這則的附件或公文本體需要人工檢查，請先逐一打開，再勾選「我已打開檢查附件」。');
     }
@@ -2094,28 +2308,24 @@ function api_forceApprove(caseId, d, reason, typed) {
     }
     const who = Session.getActiveUser().getEmail();
     const when = Utilities.formatDate(new Date(), 'Asia/Taipei', 'MM/dd HH:mm');
-    const notes = String(c['風險說明'] || '').split('；').filter(function (n) { return n && !/^人工確認強制送出：/.test(n); })
+    const base = isNotPublic_(c) ? withNotPublicOk_(c['風險說明'], notPublicOkOf_(c, d) && mode !== '只有寄信') : c['風險說明'];
+    const notes = String(base || '').split('；').filter(function (n) { return n && !/^人工確認強制送出：/.test(n); })
       .concat(['人工確認強制送出：' + reason + '（' + who + ' ' + when + '）']);
-    updateCase_(caseId, {
-      '公告標題': d.title,
-      '公告內文': sanitizeBody_(d.body),
-      '建議分類': d.category,
-      '適用對象': d.scope,
-      '公告起日': d.startDate,
-      '公告迄日': d.endDate,
-      '狀態': CONFIG.STATUS.APPROVED,
+    updateCase_(caseId, Object.assign(draftPatch_(d), {
       '風險等級': '紅',
       '風險說明': joinNotes_(notes),
       '審核人': who,
       '審核時間': new Date(),
       '備註': '紅燈強制送出：' + reason
-    });
+    }));
+    // 先搬回待審核資料夾（已擋下的在 99_已退回，寄信小幫手讀不到附件），再設狀態與排信；同一把鎖裡做，不會重複排信
+    try { moveCaseFolder_(c['資料夾ID'], 'REVIEW'); } catch (e) {}
+    msg = setModeState_(caseId, mode).message;
   } finally {
-    lock.releaseLock();
+    unlock_(lock);
   }
   markDraft_(caseId, false);
-  try { moveCaseFolder_(c['資料夾ID'], 'REVIEW'); } catch (e) {}
-  return { ok: true, message: '已強制核准，等待公告助手發布。' };
+  return { ok: true, message: mode === '只有公告' ? '已強制核准，等待公告助手發布。' : '已強制核准。' + msg };
 }
 
 // ---------- 公告助手心跳與提醒 ----------
@@ -2256,7 +2466,7 @@ function api_unsubmit(caseId) {
       '備註': '人工確認後台沒有這則，改回待發布 ' + Utilities.formatDate(new Date(), 'Asia/Taipei', 'MM/dd HH:mm')
     });
   } finally {
-    lock.releaseLock();
+    unlock_(lock);
   }
   try { PropertiesService.getScriptProperties().deleteProperty('CLAIM_' + caseId); } catch (e) {}
   return { ok: true };
@@ -2272,6 +2482,670 @@ function api_reparse(caseId) {
   try { moveCaseFolder_(c['資料夾ID'], 'WORKING'); } catch (e) {}
   processCase_(caseId);
   return api_detail(caseId);
+}
+
+// ============================================================
+// 寄信（v10）：公告＋寄信／只有公告／只有寄信
+// ------------------------------------------------------------
+// 信由「寄信小幫手」寄出：小幫手是裝在 CONFIG.MAIL_SENDER 帳號的另一個 Apps Script，
+// 每 5 分鐘讀一次「寄信佇列」試算表、用那個帳號寄出、把結果寫回來。
+// 這邊只負責：組好標題、內文、收件群組、附件，排進佇列；再把寄送結果同步回案件。
+//   只有寄信：核准 → MAILING（寄信狀態「待寄」）→ 寄出後 MAILED
+//   公告＋寄信：核准 → APPROVED（寄信狀態「等公告」）→ 校網上架（PUBLISHED）時才排信，信裡附公告網址
+// ============================================================
+
+const MAIL_QUEUE_COLS = ['寄信ID', 'caseId', '建立時間', '收件者', '標題', '內文', '內文HTML', '附件ID',
+                         '附件大小MB', '狀態', '嘗試次數', '開始時間', '寄出時間', '結果', '已同步'];
+
+/** 寄信佇列設定好了沒（讀不到屬性時當成還沒設定，不影響審核台顯示） */
+function mailReady_() {
+  try { return !!PropertiesService.getScriptProperties().getProperty('MAIL_QUEUE_ID'); } catch (e) { return false; }
+}
+
+function modeOf_(c) {
+  return CONFIG.PUBLISH_MODES.indexOf(c['發布方式']) >= 0 ? c['發布方式'] : '只有公告';
+}
+function splitGroups_(s) {
+  return String(s || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+}
+
+// ---------- 收件群組（v10.1：審核台可以自己新增、修改、刪除；一個群組可以放多個信箱） ----------
+//
+// 群組存在指令碼屬性 MAIL_GROUPS_JSON：[{ id, name, emails: [...] }]；沒存過就用 CONFIG.MAIL_GROUPS。
+// 案件的「收件群組」欄存群組 ID（逗號分隔），排進寄信佇列時才換成群組裡的信箱，所以改了群組，還沒排的信跟著改。
+// 舊資料存的是信箱：有一模一樣的單一信箱群組就當成那個群組，沒有就直接當收件信箱。
+const MAIL_GROUPS_PROP_ = 'MAIL_GROUPS_JSON';
+const MAIL_GROUPS_MAX_ = 60;            // 最多幾個群組
+const MAIL_GROUP_EMAILS_MAX_ = 50;      // 一個群組最多幾個信箱（一封信最多 50 個收件信箱）
+
+function isSchoolEmail_(e) {
+  e = String(e || '');
+  const at = e.lastIndexOf('@');
+  return at > 0 && /^[a-z0-9._%+-]+$/.test(e.slice(0, at)) && e.slice(at + 1) === CONFIG.MAIL_DOMAIN;
+}
+
+/** 一段文字裡的信箱：逗號、分號、頓號、空白、換行都可以分隔；轉小寫、去重複 */
+function splitEmails_(s) {
+  const list = (Array.isArray(s) ? s.join(',') : String(s || ''))
+    .split(/[\s,;，；、]+/).map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);
+  return list.filter(function (x, i) { return list.indexOf(x) === i; });
+}
+
+function defaultGroups_() {
+  return CONFIG.MAIL_GROUPS.map(function (g) { return { id: g.email.split('@')[0], name: g.name, emails: [g.email] }; });
+}
+
+/** 目前的收件群組（沒存過、讀不到或格式壞掉就用預設清單） */
+function mailGroups_() {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty(MAIL_GROUPS_PROP_);
+    if (raw) {
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        const ok = list.filter(function (g) { return g && g.id && g.name && Array.isArray(g.emails) && g.emails.length; })
+          .map(function (g) { return { id: String(g.id), name: String(g.name), emails: g.emails.map(String) }; });
+        if (ok.length) return ok;
+      }
+    }
+  } catch (e) { console.warn('收件群組讀取失敗，改用預設清單：' + e.message); }
+  return defaultGroups_();
+}
+
+/** 「收件群組」欄（或審核台送來的）→ 群組 ID 清單：信箱換成對應的單一信箱群組，不認得的 ID 拿掉 */
+function groupIdsOf_(cell, groups) {
+  const ids = [];
+  splitGroups_(cell).forEach(function (t) {
+    let id = '';
+    if (t.indexOf('@') > 0) {
+      const e = t.toLowerCase();
+      const g = groups.filter(function (x) { return x.emails.length === 1 && x.emails[0] === e; })[0];
+      id = g ? g.id : e;                       // 沒有對應群組：留著信箱本身（舊資料）
+    } else if (groups.some(function (x) { return x.id === t; })) {
+      id = t;
+    }
+    if (id && ids.indexOf(id) < 0) ids.push(id);
+  });
+  return ids;
+}
+
+/** 「收件群組」欄 → 實際收件信箱（去重複）。群組已經被刪掉 → 丟錯（寄信失敗，請人重新勾選） */
+function expandGroups_(cell, groups) {
+  const out = [];
+  splitGroups_(cell).forEach(function (t) {
+    let emails;
+    if (t.indexOf('@') > 0) emails = [t.toLowerCase()];
+    else {
+      const g = groups.filter(function (x) { return x.id === t; })[0];
+      if (!g) throw new Error('收件群組已經被刪除（' + t + '），請重新勾選收件群組。');
+      emails = g.emails;
+    }
+    emails.forEach(function (e) { if (out.indexOf(e) < 0) out.push(e); });
+  });
+  return out;
+}
+
+/** 依適用對象預設勾選的群組 ID（只留還存在的群組） */
+function scopeGroupIds_(scope, groups) {
+  groups = groups || mailGroups_();
+  const want = CONFIG.MAIL_SCOPE_GROUPS[scope] || CONFIG.MAIL_SCOPE_GROUPS['全校'] || [];
+  return want.filter(function (id) { return groups.some(function (g) { return g.id === id; }); });
+}
+function scopeGroupMap_(groups) {
+  groups = groups || mailGroups_();
+  const out = {};
+  Object.keys(CONFIG.MAIL_SCOPE_GROUPS).forEach(function (k) { out[k] = scopeGroupIds_(k, groups); });
+  return out;
+}
+
+/** 審核台「管理群組」：讀目前的群組 */
+function api_groups() {
+  requireReviewer_();
+  return { groups: mailGroups_(), maxRecipients: CONFIG.MAIL_MAX_RECIPIENTS, domain: CONFIG.MAIL_DOMAIN };
+}
+
+/**
+ * 審核台「管理群組」：整份存回。每個群組要有名稱（不重複）和 1～50 個學校信箱。
+ * 沒有 ID 的是新群組，給一個新 ID；清單裡沒有的群組就是刪掉了。
+ * 已經排進寄信佇列的信不受影響（佇列裡存的是當時的信箱）；還在「等公告」的會照新的群組寄。
+ */
+function api_saveGroups(list) {
+  requireReviewer_();
+  if (!Array.isArray(list)) throw new Error('群組資料格式不正確。');
+  if (list.length > MAIL_GROUPS_MAX_) throw new Error('群組最多 ' + MAIL_GROUPS_MAX_ + ' 個。');
+  const names = [], ids = [];
+  const out = list.map(function (g, i) {
+    const name = oneLine_(g && g.name).slice(0, 30);
+    if (!name) throw new Error('第 ' + (i + 1) + ' 個群組沒有名稱。');
+    if (names.indexOf(name) >= 0) throw new Error('群組名稱重複：' + name);
+    names.push(name);
+    const emails = splitEmails_(g.emails);
+    if (!emails.length) throw new Error('「' + name + '」沒有填信箱。');
+    const bad = emails.filter(function (e) { return !isSchoolEmail_(e); });
+    if (bad.length) throw new Error('「' + name + '」有不是 ' + CONFIG.MAIL_DOMAIN + ' 的信箱：' + bad.join('、'));
+    if (emails.length > MAIL_GROUP_EMAILS_MAX_) {
+      throw new Error('「' + name + '」有 ' + emails.length + ' 個信箱，一個群組最多 ' + MAIL_GROUP_EMAILS_MAX_ + ' 個。');
+    }
+    let id = String(g.id || '');
+    if (!/^[a-z0-9-]{1,40}$/.test(id) || ids.indexOf(id) >= 0) {
+      do { id = 'g' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36); } while (ids.indexOf(id) >= 0);
+    }
+    ids.push(id);
+    return { id: id, name: name, emails: emails };
+  });
+  if (!out.length) throw new Error('至少要留一個群組。');
+  const json = JSON.stringify(out);
+  if (unescape(encodeURIComponent(json)).length > 9000) throw new Error('群組資料太多（超過 9 KB），請刪掉一些群組或信箱。');
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) throw new Error('系統忙碌中，請過幾秒再按一次。');
+  try {
+    PropertiesService.getScriptProperties().setProperty(MAIL_GROUPS_PROP_, json);
+  } finally {
+    unlock_(lock);
+  }
+  return { ok: true, groups: out, scopeGroups: scopeGroupMap_(out) };
+}
+function oneLine_(s) { return String(s || '').replace(/[\r\n]+/g, ' ').replace(/\s{2,}/g, ' ').trim(); }
+/**
+ * 寫進試算表的文字一律加 ' 前綴：= + - @ 開頭不會變公式，「11/20」這種也不會被轉成日期
+ * （' 本身不會存進去，讀回來就是原本的文字）
+ */
+function textCell_(s) { s = String(s == null ? '' : s); return s ? "'" + s : s; }
+/** 讀回來的文字：萬一 ' 前綴被存成內容，去掉（正常情況試算表不會存它） */
+function unq_(v) { return typeof v === 'string' && v.charAt(0) === "'" ? v.slice(1) : v; }
+
+function mailSubject_(unit, type, desc) { return unit + '-[' + type + ']-' + oneLine_(desc); }
+
+/** 審核台送來的寄信欄位：單位、歸類照學校規範；收件群組只能是群組清單裡的，加起來最多 50 個信箱 */
+function validateMail_(d) {
+  if (!CONFIG.MAIL_UNITS[d.mailUnit]) throw new Error('寄件標題的發布單位不正確。');
+  if (CONFIG.MAIL_TYPES.indexOf(d.mailType) < 0) throw new Error('寄件標題的發布內容歸類不正確。');
+  const desc = oneLine_(d.mailDesc);
+  if (!desc) throw new Error('請填寫寄件標題的內容簡要說明。');
+  if (desc.length > 60) throw new Error('寄件標題的內容簡要說明太長（最多 60 字）。');
+  const text = String(d.mailText || '').trim();
+  if (!text) throw new Error('請填寫信件內文：先寫這封信的目的，不要只有標題和附件。');
+  if (text.length > 5000) throw new Error('信件內文太長（最多 5000 字）。');
+  const groups = d.mailGroups || [];
+  if (!Array.isArray(groups) || !groups.length) throw new Error('請至少勾選一個收件群組。');
+  // 審核台送來的是群組 ID（舊版送信箱也接受）；每個都要是群組清單裡的
+  const all = mailGroups_();
+  const ids = groups.map(function (g) {
+    const id = groupIdsOf_(String(g), all)[0];
+    if (!id || id.indexOf('@') > 0 || !all.some(function (x) { return x.id === id; })) throw new Error('收件群組不在清單裡：' + g);
+    return id;
+  }).filter(function (id, i, a) { return a.indexOf(id) === i; });
+  const to = expandGroups_(ids.join(','), all);
+  if (to.length > CONFIG.MAIL_MAX_RECIPIENTS) {
+    throw new Error('勾選的群組加起來有 ' + to.length + ' 個信箱，一封最多 ' + CONFIG.MAIL_MAX_RECIPIENTS + ' 個，請減少勾選或分兩封寄。');
+  }
+  d.mailGroups = ids;
+}
+
+/** 要寄出的附件：跟上傳校網的一樣，但系統自動產生的 ODF 副本不重複附（原檔已經附了） */
+function mailFiles_(files) {
+  const ids = files.map(function (f) { return String(f.id); });
+  return files.filter(function (f) {
+    const m = String(f.desc || '').match(/^odf-of:(.+)$/);
+    return !(m && ids.indexOf(m[1].trim()) >= 0);
+  });
+}
+
+/**
+ * 核准、重新寄送前的檢查：不宜公開的要勾選確認才能公告；要寄信的話，佇列要設好、寄信小幫手要在正常運作
+ * （沒在跑就排信，信會卡在佇列，等小幫手恢復才一次補寄）、附件不能太大。沒問題回 ''
+ */
+function modePrecheck_(c, mode, d) {
+  if (CONFIG.PUBLISH_MODES.indexOf(mode) < 0) return '發布方式不正確。';
+  if (isNotPublic_(c) && mode !== '只有寄信' && !notPublicOkOf_(c, d)) {
+    return 'AI 研判這則不宜公開到校網。確認可以公開的話，請先勾選「我已確認可以公開到校網」；不然請選「只有寄信」（寄給校內群組）。';
+  }
+  if (mode === '只有公告') return '';
+  if (!mailReady_()) {
+    return '寄信功能還沒設定：請先在 Apps Script 執行 setupMail，並在 ' + CONFIG.MAIL_SENDER + ' 帳號裝好寄信小幫手（見安裝說明）。';
+  }
+  const h = mailHelperStatus_();
+  if (h.state !== 'ok' || h.wrongAccount) {
+    return '寄信小幫手沒有正常運作（' + (h.state === 'never' ? '還沒有回報過，請在 ' + CONFIG.MAIL_SENDER + ' 帳號執行小幫手的 setup'
+      : h.state === 'stale' ? h.ageMin + ' 分鐘沒有回報，排程可能停了'
+      : h.wrongAccount ? '裝在 ' + h.account + '，不是 ' + CONFIG.MAIL_SENDER
+      : h.state === 'warn' ? h.msg
+      : '讀不到寄信佇列') + '）。先處理好再核准，或改成「只有公告」。';
+  }
+  const files = mailFiles_(publishFiles_(c));
+  const bytes = files.reduce(function (s, f) { return s + (Number(f.size) || 0); }, 0);
+  if (bytes > CONFIG.MAIL_MAX_MB * 1048576) {
+    return '附件總共 ' + (Math.round(bytes / 1048576 * 10) / 10) + ' MB，超過寄信上限 ' + CONFIG.MAIL_MAX_MB +
+           ' MB。請改成「只有公告」，或自己寄信（附件改放雲端連結）。';
+  }
+  return '';
+}
+
+/**
+ * 核准：鎖內重讀狀態（兩個分頁同時按核准，只有一個成功，不會排兩封信），寫入審核欄位，再依發布方式設狀態。
+ */
+function approveWithMode_(caseId, mode, allowed, patch) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) throw new Error('系統忙碌中，請過幾秒再按一次。');
+  try {
+    const c = getCase_(caseId);
+    if (allowed.indexOf(c['狀態']) < 0) throw new Error('這則目前是「' + c['狀態'] + '」，可能已經核准過了，請重新整理。');
+    updateCase_(caseId, patch);
+    return setModeState_(caseId, mode);
+  } finally {
+    unlock_(lock);
+  }
+}
+
+/** 依發布方式設狀態（呼叫的人要拿著鎖）。只有寄信：馬上排信 */
+function setModeState_(caseId, mode) {
+  const S = CONFIG.STATUS;
+  if (mode === '只有寄信') {
+    updateCase_(caseId, { '狀態': S.MAILING, '寄信時間': '', '寄信結果': '' });
+    try {
+      enqueueMail_(getCase_(caseId), '');
+    } catch (e) {
+      updateCase_(caseId, { '寄信狀態': '失敗', '寄信結果': textCell_('排入寄信佇列失敗：' + e.message) });
+      return { ok: false, message: '已核准，但排入寄信佇列失敗：' + e.message + '。修正後按「重新寄送」。' };
+    }
+    return { ok: true, message: '已核准，寄信小幫手約 5 分鐘內會用 ' + CONFIG.MAIL_SENDER + ' 寄出。' };
+  }
+  updateCase_(caseId, {
+    '狀態': S.APPROVED,
+    '寄信狀態': mode === '公告＋寄信' ? '等公告' : '',
+    '寄信時間': '', '寄信結果': ''
+  });
+  return { ok: true, message: mode === '公告＋寄信' ? '已核准，等待發布；校網上架後會自動寄信（信裡附公告網址）。' : '已核准，等待發布。' };
+}
+
+/** 組信：標題照學校規範，內文先寫目的，再附公告網址、附件名稱與來文 */
+function composeMail_(c, url) {
+  const files = mailFiles_(publishFiles_(c));
+  const lines = [String(unq_(c['寄信內文']) || '').trim()];
+  if (url) lines.push('校網公告：' + url);
+  if (files.length) lines.push('附件：\n' + files.map(function (f) { return '・' + f.name; }).join('\n'));
+  const src = [c['發文機關'], c['發文字號']].filter(Boolean).join(' ');
+  if (src) lines.push('來文：' + src);
+  const text = lines.join('\n\n');
+  // 網址只收 ASCII 字元（後面緊接的中文不會被包進連結），結尾的標點不算網址
+  const html = lines.map(function (block) {
+    return '<p>' + escapeHtml_(block).replace(/\n/g, '<br>')
+      .replace(/https?:\/\/[A-Za-z0-9\-._~:\/?#\[\]@!$&'()*+,;=%]+/g, function (u) {
+        const tail = (u.match(/[.,;:!?)\]']+$/) || [''])[0];
+        const link = tail ? u.slice(0, -tail.length) : u;
+        return '<a href="' + link + '">' + link + '</a>' + tail;
+      }) + '</p>';
+  }).join('\n');
+  return {
+    to: expandGroups_(c['收件群組'], mailGroups_()),
+    subject: mailSubject_(c['寄信單位'], c['寄信歸類'], unq_(c['寄信說明'])),
+    text: text,
+    html: html,
+    files: files
+  };
+}
+
+/** 寄信佇列試算表（setupMail 建立） */
+let MAIL_SS_ = null;
+function mailBook_() {
+  if (MAIL_SS_) return MAIL_SS_;
+  const id = prop_('MAIL_QUEUE_ID', false);
+  if (!id) throw new Error('還沒設定寄信佇列，請先執行 setupMail。');
+  MAIL_SS_ = SpreadsheetApp.openById(id);
+  return MAIL_SS_;
+}
+
+/** 讀整張佇列：{ q, head, rows:[{ row, v }] }，col(k) 回傳欄號（1 起算） */
+function readQueue_() {
+  const q = mailBook_().getSheetByName('佇列');
+  const last = q.getLastRow();
+  const head = q.getRange(1, 1, 1, Math.max(1, q.getLastColumn())).getValues()[0];
+  const vals = last < 2 ? [] : q.getRange(2, 1, last - 1, head.length).getValues();
+  return {
+    q: q, head: head,
+    col: function (k) { return head.indexOf(k) + 1; },
+    rows: vals.map(function (v, i) { return { row: i + 2, v: v, get: function (k) { return unq_(v[head.indexOf(k)]); } }; })
+  };
+}
+
+/**
+ * 排一封信（呼叫的人要拿著鎖），回傳寄信ID。
+ *   - 同一案件佇列裡還有「待寄／寄送中」的信 → 不排（不會重複寄）
+ *   - 先把案件記成待寄、記下這封的寄信ID，最後才寫進佇列：寫佇列失敗時案件不會留著「已排」的假象；
+ *     寫入回報錯誤但其實寫進去了（逾時），再查一次佇列確認，有就當成功，不會讓人按重新寄送又多一封
+ */
+function enqueueMail_(c, url) {
+  const m = composeMail_(c, url);
+  if (!m.to.length) throw new Error('沒有收件群組');
+  const bad = m.to.filter(function (t) { return !isSchoolEmail_(t); });
+  if (bad.length) throw new Error('收件者不是 ' + CONFIG.MAIL_DOMAIN + ' 的信箱：' + bad.join('、'));
+  if (m.to.length > CONFIG.MAIL_MAX_RECIPIENTS) throw new Error('收件信箱有 ' + m.to.length + ' 個，一封最多 ' + CONFIG.MAIL_MAX_RECIPIENTS + ' 個');
+  const bytes = m.files.reduce(function (s, f) { return s + (Number(f.size) || 0); }, 0);
+  if (bytes > CONFIG.MAIL_MAX_MB * 1048576) throw new Error('附件超過 ' + CONFIG.MAIL_MAX_MB + ' MB');
+
+  const Q = readQueue_();
+  const busy = Q.rows.filter(function (r) {
+    return String(r.get('caseId')) === String(c.caseId) && /^(待寄|寄送中)/.test(String(r.get('狀態')));
+  });
+  if (busy.length) throw new Error('這則已經有一封在寄信佇列裡（' + busy[0].get('狀態') + '），不會重複寄');
+
+  const id = 'M' + Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyyMMddHHmmss') + '-' + c.caseId + '-' + Math.random().toString(36).slice(2, 7);
+  PropertiesService.getScriptProperties().setProperty('MAILQ_' + c.caseId, id);
+  updateCase_(c.caseId, {
+    '寄信狀態': '待寄',
+    '寄信結果': '已排入寄信佇列 ' + Utilities.formatDate(new Date(), 'Asia/Taipei', 'MM/dd HH:mm')
+  });
+  const row = {
+    '寄信ID': id, 'caseId': c.caseId, '建立時間': new Date(), '收件者': m.to.join(','),
+    '標題': textCell_(m.subject), '內文': textCell_(m.text), '內文HTML': textCell_(m.html),
+    '附件ID': m.files.map(function (f) { return f.id; }).join(','),
+    '附件大小MB': Math.round(bytes / 1048576 * 10) / 10,
+    '狀態': '待寄', '嘗試次數': 0, '開始時間': '', '寄出時間': '', '結果': '', '已同步': ''
+  };
+  try {
+    Q.q.appendRow(MAIL_QUEUE_COLS.map(function (k) { return row[k]; }));
+    try { SpreadsheetApp.flush(); } catch (e) {}
+  } catch (e) {
+    let landed = false;
+    try { landed = readQueue_().rows.some(function (r) { return String(r.get('寄信ID')) === id; }); } catch (e2) {}
+    if (!landed) {
+      // 確定沒寫進去：案件改成失敗、清掉這封的記錄，所有呼叫的地方都一樣（不會留下沒有佇列列的「待寄」）
+      try { PropertiesService.getScriptProperties().deleteProperty('MAILQ_' + c.caseId); } catch (e3) {}
+      try { updateCase_(c.caseId, { '寄信狀態': '失敗', '寄信結果': textCell_('排入寄信佇列失敗：' + e.message) }); } catch (e4) {}
+      throw e;
+    }
+  }
+  return id;
+}
+
+/** 信件標題說明與內文的個資檢查（跟「只有寄信」改內文重算一樣），回傳 assessRisk_ 結果 */
+function mailRisk_(c, desc, text) {
+  return assessRisk_({
+    '密等': c['密等'], '適合公開': true, '公告標題': desc, '公告內文': '<p>' + escapeHtml_(text || '') + '</p>',
+    '主旨': c['主旨'], '說明摘要': '', '重點條列': [], '偵測到的個資': []
+  });
+}
+
+/** 校網上架時：「公告＋寄信」的案件排信（鎖內確認還是「等公告」，不會排兩次） */
+function queueMailAfterPublish_(caseId) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) throw new Error('系統忙碌，寄信會在下一輪排程補排');
+  try {
+    const c = getCase_(caseId);
+    if (c['寄信狀態'] !== '等公告' || c['狀態'] !== CONFIG.STATUS.PUBLISHED) return '';
+    return enqueueMail_(c, c['校網網址']);
+  } finally {
+    unlock_(lock);
+  }
+}
+
+/**
+ * 寄送結果同步回案件：小幫手寫了「已寄」或「失敗」、這邊還沒同步的列。
+ * 只認案件目前這一封（MAILQ_<caseId>；沒有記錄時認還在待寄的案件）；重新寄送之前那封的結果不會蓋掉新的。
+ * 案件更新成功後才標「已同步」（中途出錯下一次會再試）。寄信失敗的通知在放鎖之後才送。
+ */
+function syncMailResults_() {
+  if (!mailReady_()) return 0;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return 0;
+  let n = 0;
+  const alerts = [];
+  try {
+    const Q = readQueue_();
+    const props = PropertiesService.getScriptProperties();
+    Q.rows.forEach(function (r) {
+      const st = String(r.get('狀態'));
+      if ((st !== '已寄' && st !== '失敗') || r.get('已同步')) return;
+      const caseId = String(r.get('caseId'));
+      const mailId = String(r.get('寄信ID'));
+      let c = null;
+      try { c = getCase_(caseId); }
+      catch (e) {
+        if (!/找不到案件/.test(e.message)) return;    // 試算表暫時讀不到：不標已同步，下一次再試
+        c = null;
+      }
+      const cur = props.getProperty('MAILQ_' + caseId);
+      // 已寄：以實際結果為準（沒有更新的一封在排隊時都記上去）；失敗：只認目前這一封
+      const mine = c && c['狀態'] !== CONFIG.STATUS.DELETED &&
+        (cur ? cur === mailId : (st === '已寄' || c['寄信狀態'] === '待寄'));
+      if (mine) {
+        try {
+          if (st === '已寄') {
+            const patch = { '寄信狀態': '已寄', '寄信時間': r.get('寄出時間') || new Date(), '寄信結果': textCell_(String(r.get('結果') || '已寄出')) };
+            if (c['狀態'] === CONFIG.STATUS.MAILING) patch['狀態'] = CONFIG.STATUS.MAILED;
+            updateCase_(caseId, patch);
+            props.deleteProperty('MAILQ_' + caseId);
+            if (c['狀態'] === CONFIG.STATUS.MAILING) { try { moveCaseFolder_(c['資料夾ID'], 'PUBLISHED'); } catch (e) {} }
+          } else {
+            updateCase_(caseId, { '寄信狀態': '失敗', '寄信結果': textCell_(String(r.get('結果') || '寄送失敗')) });
+            alerts.push('「' + (c['公告標題'] || c['主旨'] || caseId) + '」\n原因：' + String(r.get('結果') || '未說明').slice(0, 300));
+          }
+        } catch (e) {
+          console.warn('同步寄信結果失敗 ' + caseId + '：' + e.message);
+          return;                                  // 沒標已同步，下一次再試
+        }
+      }
+      Q.q.getRange(r.row, Q.col('已同步')).setValue(new Date());
+      n++;
+    });
+  } finally {
+    unlock_(lock);
+  }
+  alerts.forEach(function (a) {
+    try { notify_('寄信失敗', a + '\n請到審核台看這則，排除後按「重新寄送」，不寄了按「不寄了」。'); } catch (e) {}
+  });
+  return n;
+}
+
+/** 寄信小幫手狀態：小幫手每一輪把時間、帳號、版本寫到佇列試算表的「狀態」工作表 */
+let MAIL_HELPER_CACHE_ = null;
+function mailHelperStatus_() {
+  if (MAIL_HELPER_CACHE_) return MAIL_HELPER_CACHE_;
+  if (!mailReady_()) return { state: 'unset' };
+  try {
+    const st = mailBook_().getSheetByName('狀態');
+    const v = st.getRange(1, 2, 5, 1).getValues();
+    const at = v[0][0] ? new Date(v[0][0]).getTime() : 0;
+    if (!at) return (MAIL_HELPER_CACHE_ = { state: 'never' });
+    const account = String(v[1][0] || '');
+    const ageMin = Math.round((Date.now() - at) / 60000);
+    const warn = String(v[4][0] || '');
+    MAIL_HELPER_CACHE_ = {
+      state: ageMin > 20 ? 'stale' : warn ? 'warn' : 'ok', msg: warn, ageMin: ageMin, account: account, version: String(v[2][0] || ''),
+      wrongAccount: !!account && account.toLowerCase() !== CONFIG.MAIL_SENDER.toLowerCase(),
+      at: Utilities.formatDate(new Date(at), 'Asia/Taipei', 'MM/dd HH:mm')
+    };
+    return MAIL_HELPER_CACHE_;
+  } catch (e) {
+    return { state: 'error', msg: String(e.message).slice(0, 120) };
+  }
+}
+
+/**
+ * 每 10 分鐘排程：
+ *   - 已上架但還是「等公告」的（上架那時排信失敗或搶不到鎖）→ 補排
+ *   - 佇列裡「待寄／寄送中」超過 20 分鐘 → 通知（3 小時內不重複）
+ */
+function checkMailWaiting_() {
+  if (!mailReady_()) return false;
+  listCases_([CONFIG.STATUS.PUBLISHED]).filter(function (c) { return c['寄信狀態'] === '等公告'; }).forEach(function (c) {
+    // 上架太久的不補寄（例如排程停了好幾天），標成失敗，要寄由人按重新寄送
+    const age = Date.now() - new Date(c['發布時間']).getTime();
+    if (!(age < CONFIG.MAIL_EXPIRE_HOURS * 3600 * 1000)) {
+      try { updateCase_(c.caseId, { '寄信狀態': '失敗', '寄信結果': textCell_('校網上架超過 ' + CONFIG.MAIL_EXPIRE_HOURS + ' 小時還沒排信，已不自動補寄；還要寄請按「重新寄送」') }); } catch (e) {}
+      return;
+    }
+    try { queueMailAfterPublish_(c.caseId); } catch (e) {
+      console.warn('補排寄信失敗 ' + c.caseId + '：' + e.message);
+      // 再試也不會好的（例如收件群組被刪掉、信箱太多）：記成寄信失敗並通知，不要每 10 分鐘一直重試
+      if (/已經被刪除|一封最多|附件超過|沒有收件群組|的信箱：/.test(e.message)) {
+        try {
+          updateCase_(c.caseId, { '寄信狀態': '失敗', '寄信結果': textCell_('排入寄信佇列失敗：' + e.message) });
+          notify_('寄信失敗', '「' + (c['公告標題'] || c.caseId) + '」已上校網，但信沒有排進寄信佇列：' + e.message + '\n請到審核台這則改好後按「重新寄送」。');
+        } catch (e2) {}
+      }
+    }
+  });
+  const Q = readQueue_();
+  const waiting = Q.rows.filter(function (r) {
+    return /^(待寄|寄送中)/.test(String(r.get('狀態'))) && Date.now() - new Date(r.get('建立時間')).getTime() > 20 * 60 * 1000;
+  });
+  if (!waiting.length) return false;
+  const h = mailHelperStatus_();
+  const why = h.state === 'never' ? '寄信小幫手還沒有回報過（請在 ' + CONFIG.MAIL_SENDER + ' 帳號裝好並執行 setup）'
+    : h.state === 'stale' ? '寄信小幫手已經 ' + h.ageMin + ' 分鐘沒有回報（排程可能被停用或授權過期）'
+    : h.state === 'error' ? '讀不到寄信佇列：' + h.msg
+    : '寄信小幫手在跑，但這幾封還沒寄出，請打開寄信佇列試算表看「結果」欄';
+  return alertOnce_('MAIL_WAIT_ALERT_AT', 180, '有 ' + waiting.length + ' 封信超過 20 分鐘還沒寄出',
+    why + '\n超過 ' + CONFIG.MAIL_EXPIRE_HOURS + ' 小時還沒寄出的會自動取消，不會事後補寄。\n' +
+    waiting.slice(0, 10).map(function (r) { return '・' + r.get('標題'); }).join('\n'));
+}
+
+/**
+ * 寄信失敗的案件：可以先改寄信欄位（例如減少收件群組），再重新排一封。
+ * 只有寄信要在「待寄信」、公告＋寄信要在「已發布」（退回、刪除的不寄）。
+ * 上一封可能已經寄出時，審核台會先提醒到寄件備份確認。
+ */
+function api_retryMail(caseId, d) {
+  requireReviewer_();
+  let c = getCase_(caseId);
+  const mode = modeOf_(c);
+  if (mode === '只有公告') throw new Error('這則的發布方式是「只有公告」，不寄信。');
+  if (d && d.mailUnit !== undefined) {
+    validateMail_(d);
+    // 改過的信件內容要重新檢查個資；紅燈就不寄（核准時的強制送出確認不延用到改過的內容）
+    const r = mailRisk_(c, oneLine_(d.mailDesc), String(d.mailText || ''));
+    if (r.level === '紅') throw new Error('信件內容偵測到紅燈風險：' + r.reasons.filter(function (x) { return x.indexOf('無障礙：') !== 0; }).join('；') + '。請改掉再重新寄送。');
+  }
+  const pre = modePrecheck_(c, mode);
+  if (pre) throw new Error(pre);
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) throw new Error('系統忙碌中，請過幾秒再按一次。');
+  try {
+    c = getCase_(caseId);
+    if (c['寄信狀態'] !== '失敗') throw new Error('這則目前不是寄信失敗，請重新整理。');
+    const need = mode === '只有寄信' ? CONFIG.STATUS.MAILING : CONFIG.STATUS.PUBLISHED;
+    if (c['狀態'] !== need) throw new Error('這則目前是「' + c['狀態'] + '」，不能重新寄送，請重新整理。');
+    if (d && d.mailUnit !== undefined) {
+      updateCase_(caseId, {
+        '寄信單位': d.mailUnit, '寄信歸類': d.mailType, '寄信說明': textCell_(oneLine_(d.mailDesc)),
+        '寄信內文': textCell_(String(d.mailText || '').trim()), '收件群組': d.mailGroups.join(',')
+      });
+      c = getCase_(caseId);
+    }
+    enqueueMail_(c, mode === '公告＋寄信' ? c['校網網址'] : '');
+  } finally {
+    unlock_(lock);
+  }
+  return { ok: true, message: '已重新排入寄信佇列，約 5 分鐘內寄出。' };
+}
+
+/**
+ * 不寄了／取消寄送：
+ *   - 等公告：上架後不寄
+ *   - 待寄：佇列那封還是「待寄」才取消（小幫手寄出前會重讀，看到取消就不寄）；已經開始寄就不能取消
+ *   - 失敗：標成不寄
+ * 只有寄信的案件取消後改成「已退回」。
+ */
+function api_cancelMail(caseId) {
+  requireReviewer_();
+  let alreadySent = false;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) throw new Error('系統忙碌中，請過幾秒再按一次。');
+  try {
+    const c = getCase_(caseId);
+    const ms = String(c['寄信狀態'] || '');
+    if (['等公告', '待寄', '失敗'].indexOf(ms) < 0) throw new Error('這則目前沒有要寄的信，請重新整理。');
+    if (ms === '待寄') {
+      const id = PropertiesService.getScriptProperties().getProperty('MAILQ_' + caseId);
+      const Q = readQueue_();
+      const mine = Q.rows.filter(function (x) { return String(x.get('caseId')) === String(caseId); });
+      let r = id ? mine.filter(function (x) { return String(x.get('寄信ID')) === String(id); })[0] : null;
+      if (!r) {
+        // MAILQ 記錄不見：找這則還在佇列裡（待寄、寄送中、已寄但還沒同步）的最後一封，免得取消了小幫手還是寄出
+        r = mine.filter(function (x) {
+          const s = String(x.get('狀態'));
+          return s === '待寄' || /^寄送中/.test(s) || (s === '已寄' && !x.get('已同步'));
+        }).pop() || null;
+      }
+      if (r) {
+        const cell = Q.q.getRange(r.row, Q.col('狀態'));
+        const now = String(unq_(cell.getValue()));            // 寫之前重讀這一格（不用剛才的快照）
+        if (now === '已寄') {
+          alreadySent = true;
+        } else {
+          if (now !== '待寄' && now !== '失敗') throw new Error('寄信小幫手已經開始寄這封（' + now + '），不能取消。');
+          cell.setValue('取消');
+          try { SpreadsheetApp.flush(); } catch (e) {}
+          Utilities.sleep(3000);                      // 小幫手認領一封要寫入、等 1.5 秒再確認，寄出前還會再確認一次
+          if (String(unq_(cell.getValue())) !== '取消') throw new Error('寄信小幫手剛好開始寄這封，不能取消。');
+          Q.q.getRange(r.row, Q.col('結果')).setValue('審核台取消寄送');
+          Q.q.getRange(r.row, Q.col('已同步')).setValue(new Date());
+        }
+      }
+    }
+    if (!alreadySent) {
+      const when = Utilities.formatDate(new Date(), 'Asia/Taipei', 'MM/dd HH:mm');
+      const patch = { '寄信狀態': '取消', '寄信結果': '已取消寄送 ' + when };
+      if (c['狀態'] === CONFIG.STATUS.MAILING) {
+        patch['狀態'] = CONFIG.STATUS.REJECTED;
+        patch['備註'] = '取消寄信 ' + when;
+      }
+      updateCase_(caseId, patch);
+      try { PropertiesService.getScriptProperties().deleteProperty('MAILQ_' + caseId); } catch (e) {}
+    }
+  } finally {
+    unlock_(lock);
+  }
+  if (alreadySent) {
+    try { syncMailResults_(); } catch (e) {}
+    throw new Error('這封已經寄出了，不能取消。');
+  }
+  return { ok: true, message: '已取消寄送。' };
+}
+
+/**
+ * 寄信一次設定：建立「寄信佇列」試算表，分享給寄信帳號（編輯：寫回寄送結果），
+ * 待審核、已發布兩個資料夾分享給寄信帳號（檢視：讀附件）。要重跑也沒關係。
+ * 佇列只能有系統擁有者和寄信帳號可以編輯（小幫手會檢查，有別人就不寄）。
+ */
+function setupMail() {
+  requireReviewer_();
+  const log = [];
+  let ss = null;
+  const id = prop_('MAIL_QUEUE_ID', false);
+  if (id) { try { ss = SpreadsheetApp.openById(id); } catch (e) { ss = null; } }
+  if (!ss) {
+    ss = SpreadsheetApp.create(CONFIG.MAIL_QUEUE_NAME);
+    DriveApp.getFileById(ss.getId()).moveTo(DriveApp.getFolderById(prop_('ROOT_FOLDER_ID', true)));
+    setProp_('MAIL_QUEUE_ID', ss.getId());
+  }
+  let q = ss.getSheetByName('佇列');
+  if (!q) { q = ss.getSheets()[0]; q.setName('佇列'); }
+  if (q.getLastRow() === 0) {
+    q.appendRow(MAIL_QUEUE_COLS);
+    q.getRange(1, 1, 1, MAIL_QUEUE_COLS.length).setFontWeight('bold');
+    q.setFrozenRows(1);
+  }
+  let st = ss.getSheetByName('狀態');
+  if (!st) {
+    st = ss.insertSheet('狀態');
+    st.getRange(1, 1, 5, 2).setValues([['寄信小幫手最後回報', ''], ['帳號', ''], ['版本', ''], ['專案', ''], ['警告', '']]);
+  }
+  // 附件只能來自這兩個資料夾底下的公文資料夾：小幫手 setup 時記下這兩個 ID（之後改這一格也沒用）
+  st.getRange(6, 1, 1, 2).setValues([['附件資料夾', [folder_('REVIEW').getId(), folder_('PUBLISHED').getId()].join(',')]]);
+  log.push('寄信佇列：' + ss.getUrl());
+  try {
+    DriveApp.getFileById(ss.getId()).addEditor(CONFIG.MAIL_SENDER);
+    folder_('REVIEW').addViewer(CONFIG.MAIL_SENDER);
+    folder_('PUBLISHED').addViewer(CONFIG.MAIL_SENDER);
+    log.push('已分享給 ' + CONFIG.MAIL_SENDER + '：寄信佇列（可編輯）、' + CONFIG.FOLDERS.REVIEW + '、' + CONFIG.FOLDERS.PUBLISHED + '（可檢視）');
+  } catch (e) {
+    log.push('⚠ 分享給 ' + CONFIG.MAIL_SENDER + ' 失敗：' + e.message + '。請手動分享上面三個項目。');
+  }
+  log.push('下一步：用 ' + CONFIG.MAIL_SENDER + ' 登入，建立「寄信小幫手」專案並執行 setup（見安裝說明）。');
+  const msg = log.join('\n');
+  Logger.log(msg);
+  return msg;
 }
 
 // ---------- 通知 ----------
@@ -2558,6 +3432,19 @@ function bridgeDone_(caseId, url) {
   });
   try { PropertiesService.getScriptProperties().deleteProperty('CLAIM_' + caseId); } catch (e) {}
   try { moveCaseFolder_(c['資料夾ID'], 'PUBLISHED'); } catch (e) {}
+  // v10：「公告＋寄信」上架後才排信，信裡附公告網址。排不進去不影響已發布，記成寄信失敗並通知
+  if (c['寄信狀態'] === '等公告') {
+    try {
+      queueMailAfterPublish_(caseId);
+    } catch (e) {
+      if (/系統忙碌/.test(e.message)) return { caseId: caseId, status: CONFIG.STATUS.PUBLISHED };   // 留著等公告，每 10 分鐘排程會補排
+      try {
+        updateCase_(caseId, { '寄信狀態': '失敗', '寄信結果': textCell_('排入寄信佇列失敗：' + e.message) });
+        notify_('寄信失敗', '「' + (c['公告標題'] || caseId) + '」已上校網，但信沒有排進寄信佇列：' + e.message +
+                '\n請到審核台這則按「重新寄送」。');
+      } catch (e2) {}
+    }
+  }
   return { caseId: caseId, status: CONFIG.STATUS.PUBLISHED };
 }
 
@@ -2579,7 +3466,7 @@ function bridgeClaim_(caseId) {
     try { PropertiesService.getScriptProperties().setProperty('CLAIM_' + caseId, String(Date.now())); } catch (e) {}
     return caseData_(getCase_(caseId));
   } finally {
-    lock.releaseLock();
+    unlock_(lock);
   }
 }
 
