@@ -418,6 +418,10 @@ function pollInbox() {
     try { syncMailResults_(); } catch (e) { console.warn('同步寄信結果失敗：' + e.message); }
     try { checkMailWaiting_(); } catch (e) { console.warn('寄信提醒失敗：' + e.message); }
     try { backfillArchive_(5, t0 + INTAKE_BUDGET_MS); } catch (e) { console.warn('補歸檔資料夾失敗：' + e.message); }
+    try { sortPublished_(30, t0 + INTAKE_BUDGET_MS); } catch (e) { console.warn('已發布分資料夾失敗：' + e.message); }
+    if (!props.getProperty('DATE_NAMES_FIXED')) {
+      try { fixDateNames(t0 + INTAKE_BUDGET_MS); } catch (e) { console.warn('檔名日期去斜線失敗：' + e.message); }
+    }
   } finally {
     props.deleteProperty('INTAKE_RUNNING');
   }
@@ -704,6 +708,85 @@ function listCases_(statuses) {
 /** 把案件資料夾搬到指定狀態的資料夾 */
 function moveCaseFolder_(folderId, targetKey) {
   DriveApp.getFolderById(folderId).moveTo(folder_(targetKey));
+}
+
+// ---------- 03_已發布 依歸檔分類分資料夾（v10.3，和審核台「歷史公文」同一套分類） ----------
+// 信還沒寄完（等公告、待寄、失敗可重寄）的先留在 03_已發布 第一層：寄信小幫手只收這一層公文資料夾裡的附件
+const MAIL_BUSY_ = ['等公告', '待寄', '失敗'];
+
+function publishedCats_() { return CONFIG.ARCHIVE_FOLDERS.concat([CONFIG.UNFILED]); }
+
+/** 這則已發布的公文資料夾該放哪裡：03_已發布／<歸檔分類>；信還沒寄完或還沒分類就放 03_已發布 */
+function publishedTarget_(c, cache) {
+  const root = folder_('PUBLISHED');
+  if (MAIL_BUSY_.indexOf(String(c['寄信狀態'] || '')) >= 0 || !c['歸檔分類']) return root;
+  const name = archiveOf_(c['歸檔分類']);
+  cache = cache || {};
+  if (!cache[name]) cache[name] = getOrCreateFolder_(root, name);
+  return cache[name];
+}
+
+/** 上架或寄完信時搬進已發布（取代 moveCaseFolder_(id, 'PUBLISHED')） */
+function movePublished_(c) {
+  DriveApp.getFolderById(c['資料夾ID']).moveTo(publishedTarget_(c));
+}
+
+/** 已經在 03_已發布 裡的公文資料夾，歸檔分類或寄信狀態變了就換位置；使用者搬到別處的不動 */
+function resortPublished_(caseId) {
+  const c = getCase_(caseId);
+  if ([CONFIG.STATUS.PUBLISHED, CONFIG.STATUS.MAILED].indexOf(c['狀態']) < 0 || !c['資料夾ID']) return false;
+  const f = DriveApp.getFolderById(c['資料夾ID']);
+  const ps = f.getParents();
+  if (!ps.hasNext()) return false;
+  const p = ps.next();
+  const rootId = folder_('PUBLISHED').getId();
+  let inTree = p.getId() === rootId;
+  if (!inTree && publishedCats_().indexOf(p.getName()) >= 0) {
+    const gp = p.getParents();
+    inTree = gp.hasNext() && gp.next().getId() === rootId;
+  }
+  if (!inTree) return false;
+  const target = publishedTarget_(c);
+  if (target.getId() === p.getId()) return false;
+  f.moveTo(target);
+  return true;
+}
+
+/**
+ * 每 10 分鐘的收件排程：03_已發布 第一層的公文資料夾，依歸檔分類搬進分類資料夾（每輪最多 limit 則）。
+ * 信還沒寄完、還沒分類的先不搬；不是公文案件的資料夾不動。
+ */
+function sortPublished_(limit, deadline) {
+  const root = folder_('PUBLISHED');
+  const cats = publishedCats_();
+  const flat = {};
+  const it = root.getFolders();
+  while (it.hasNext()) {
+    const f = it.next();
+    if (cats.indexOf(f.getName()) < 0) flat[f.getId()] = f;
+  }
+  if (!Object.keys(flat).length) return 0;
+  const cache = {};
+  const cases = listCases_([CONFIG.STATUS.PUBLISHED, CONFIG.STATUS.MAILED]);
+  let n = 0;
+  for (let i = 0; i < cases.length && n < (limit || 30); i++) {
+    if (deadline && Date.now() > deadline) break;
+    const c = cases[i];
+    const f = flat[String(c['資料夾ID'] || '')];
+    if (!f) continue;
+    const target = publishedTarget_(c, cache);
+    if (target.getId() === root.getId()) continue;
+    try { f.moveTo(target); n++; } catch (e) { console.warn('搬已發布資料夾失敗 ' + c.caseId + '：' + e.message); }
+  }
+  return n;
+}
+
+/** 手動執行：一次把 03_已發布 第一層的公文資料夾全部分好（排程本來就會慢慢分） */
+function sortPublished() {
+  const n = sortPublished_(500, Date.now() + 5 * 60 * 1000);
+  const msg = '已分類 ' + n + ' 個公文資料夾';
+  console.log(msg);
+  return msg;
 }
 
 // ============================================================
@@ -1150,11 +1233,73 @@ function convertToOdf_(fileId, rule) {
   }
 }
 
+/**
+ * 檔名裡的日期去掉斜線（v10.3）：「11/20」「11／20」→「1120」，「2/6」→「0206」，「115/11/20」→「1151120」。
+ * 只認得像日期的（月 1–12、日 1–31）；其他斜線照舊換成全形「／」。
+ */
+function noDateSlash_(s) {
+  return String(s == null ? '' : s).replace(/(\d{1,4})[ \t]*[\/／][ \t]*(\d{1,2})(?:[ \t]*[\/／][ \t]*(\d{1,2}))?(?!\d)/g,
+    function (all, a, b, c, off, str) {
+      if (off > 0 && /\d/.test(str.charAt(off - 1))) return all;      // 前面還有數字：不是日期開頭
+      const p2 = function (x) { return ('0' + x).slice(-2); };
+      const md = function (m, d) { return +m >= 1 && +m <= 12 && +d >= 1 && +d <= 31; };
+      if (c !== undefined) return md(b, c) ? a + p2(b) + p2(c) : all;
+      return a.length <= 2 && md(a, b) ? p2(a) + p2(b) : all;
+    });
+}
+
+/**
+ * 一次性：把現有公文資料夾和檔名裡的日期斜線拿掉（01_處理中、02_待審核、03_已發布、99_已退回），
+ * 並更新佇列的「附件清單」檔名。重跑沒關係，已經改過的不會再動。
+ * 每 10 分鐘的收件排程會自動跑一次；也可以在編輯器選 fixDateNames 手動執行。
+ */
+function fixDateNames(deadline) {
+  const log = [];
+  const changed = {};
+  let done = true;
+  const fix = function (item, isFolder) {
+    const n = item.getName();
+    const m = noDateSlash_(n);
+    if (m === n) return;
+    item.setName(m);
+    log.push((isFolder ? '資料夾 ' : '檔案 ') + n + ' → ' + m);
+    if (!isFolder) changed[item.getId()] = m;
+  };
+  const walk = function (folder, depth) {
+    const fs = folder.getFiles();
+    while (fs.hasNext()) { if (deadline && Date.now() > deadline) { done = false; return; } fix(fs.next(), false); }
+    const ds = folder.getFolders();
+    while (ds.hasNext()) {
+      if (deadline && Date.now() > deadline) { done = false; return; }
+      const d = ds.next();
+      fix(d, true);
+      if (depth < 2) walk(d, depth + 1);      // 03_已發布／分類／公文資料夾／檔案
+    }
+  };
+  ['WORKING', 'REVIEW', 'PUBLISHED', 'REJECTED'].forEach(function (k) {
+    if (done) { try { walk(folder_(k), 0); } catch (e) { log.push('⚠ ' + CONFIG.FOLDERS[k] + '：' + e.message); } }
+  });
+  if (Object.keys(changed).length) {
+    listCases_().forEach(function (c) {
+      let atts;
+      try { atts = JSON.parse(c['附件清單'] || '[]'); } catch (e) { return; }
+      let hit = false;
+      atts.forEach(function (a) { if (changed[a.id]) { a.name = changed[a.id]; hit = true; } });
+      if (hit) updateCase_(c.caseId, { '附件清單': JSON.stringify(atts) });
+    });
+  }
+  if (done) PropertiesService.getScriptProperties().setProperty('DATE_NAMES_FIXED', new Date().toISOString());
+  const msg = (log.length ? log.join('\n') : '沒有要改的檔名') + (done ? '' : '\n（時間到，剩下的下一輪繼續）');
+  console.log(msg);
+  return msg;
+}
+
 /** 「主題_西元年月日」字串；主題去掉不能當檔名的字元並截長 */
 function fileBase_(parsed) {
   let topic = String(parsed['公告標題'] || parsed['主旨'] || '').trim();
   topic = topic.replace(/^(【[^】]*】\s*)+/, '');          // 去掉【全校】等前綴
-  // 檔名禁用字元換成全形，「2/6截止」→「2／6截止」，不會變成「2 6截止」
+  topic = noDateSlash_(topic);                            // v10.3 日期去斜線：「11/20」→「1120」
+  // 其他檔名禁用字元換成全形，「國中/國小」→「國中／國小」
   const FW = { '\\': '＼', '/': '／', ':': '：', '*': '＊', '?': '？', '"': '＂', '<': '＜', '>': '＞', '|': '｜' };
   topic = topic.replace(/[\\\/:*?"<>|]/g, function (ch) { return FW[ch]; })
                .replace(/[\r\n\t]/g, ' ')
@@ -2331,6 +2476,7 @@ function api_setArchive(caseId, folder) {
   if (c['狀態'] === CONFIG.STATUS.DELETED) throw new Error('這則已刪除，請重新整理。');
   PropertiesService.getScriptProperties().setProperty('ARCHMAN_' + caseId, folder);
   updateCase_(caseId, { '歸檔分類': folder });
+  try { resortPublished_(caseId); } catch (e) { console.warn('搬已發布資料夾失敗：' + e.message); }
   return { ok: true, archive: folder };
 }
 
@@ -2566,6 +2712,7 @@ function backfillArchive_(limit, deadline) {
     const now = getCase_(c.caseId);
     if (now['歸檔分類'] || archiveManual_(c.caseId)) continue;   // 這段時間已經有人選了
     updateCase_(c.caseId, { '歸檔分類': folder });
+    try { resortPublished_(c.caseId); } catch (e) {}
     n++;
   }
   return n;
@@ -3048,7 +3195,8 @@ function syncMailResults_() {
             if (c['狀態'] === CONFIG.STATUS.MAILING) patch['狀態'] = CONFIG.STATUS.MAILED;
             updateCase_(caseId, patch);
             props.deleteProperty('MAILQ_' + caseId);
-            if (c['狀態'] === CONFIG.STATUS.MAILING) { try { moveCaseFolder_(c['資料夾ID'], 'PUBLISHED'); } catch (e) {} }
+            if (c['狀態'] === CONFIG.STATUS.MAILING) { try { movePublished_(Object.assign({}, c, patch)); } catch (e) {} }
+            else { try { resortPublished_(caseId); } catch (e) {} }   // 公告＋寄信：信寄完了，搬進分類資料夾
           } else {
             updateCase_(caseId, { '寄信狀態': '失敗', '寄信結果': textCell_(String(r.get('結果') || '寄送失敗')) });
             alerts.push('「' + (c['公告標題'] || c['主旨'] || caseId) + '」\n原因：' + String(r.get('結果') || '未說明').slice(0, 300));
@@ -3266,6 +3414,7 @@ function setupMail() {
     st.getRange(1, 1, 5, 2).setValues([['寄信小幫手最後回報', ''], ['帳號', ''], ['版本', ''], ['專案', ''], ['警告', '']]);
   }
   // 附件只能來自這兩個資料夾底下的公文資料夾：小幫手 setup 時記下這兩個 ID（之後改這一格也沒用）
+  // v10.3 已發布的公文資料夾會依歸檔分類分資料夾，但信寄完才搬，所以寄信時一定還在 03_已發布 第一層
   st.getRange(6, 1, 1, 2).setValues([['附件資料夾', [folder_('REVIEW').getId(), folder_('PUBLISHED').getId()].join(',')]]);
   log.push('寄信佇列：' + ss.getUrl());
   try {
@@ -3565,7 +3714,7 @@ function bridgeDone_(caseId, url) {
     '校網網址': url
   });
   try { PropertiesService.getScriptProperties().deleteProperty('CLAIM_' + caseId); } catch (e) {}
-  try { moveCaseFolder_(c['資料夾ID'], 'PUBLISHED'); } catch (e) {}
+  try { movePublished_(c); } catch (e) {}   // 等公告的信還沒寄：先放 03_已發布 第一層
   // v10：「公告＋寄信」上架後才排信，信裡附公告網址。排不進去不影響已發布，記成寄信失敗並通知
   if (c['寄信狀態'] === '等公告') {
     try {
@@ -3918,7 +4067,7 @@ function publishCase_(caseId) {
     '發布時間': new Date(),
     '校網網址': url
   });
-  try { moveCaseFolder_(c['資料夾ID'], 'PUBLISHED'); } catch (e) {}
+  try { movePublished_(c); } catch (e) {}
   return url;
 }
 
