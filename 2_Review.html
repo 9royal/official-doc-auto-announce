@@ -122,6 +122,21 @@
   .mailstate.bad{background:var(--redbg);color:var(--red)}
   .section{margin-top:18px;padding-top:4px;border-top:1px dashed var(--line)}
   .section h3{font-size:14px;margin:10px 0 0}
+  /* v10.2 公告設定、內容版本 */
+  header{flex-wrap:wrap}
+  .setbox{position:fixed;top:64px;right:16px;width:min(440px,calc(100vw - 32px));z-index:20;background:var(--panel);
+    border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:0 10px 30px rgba(0,0,0,.15)}
+  .setbox h2{font-size:16px;margin:0 0 4px}
+  .setbox .opts{display:grid;gap:8px;margin-top:10px}
+  .setbox .opts label,.setbox .direct{display:flex;gap:10px;align-items:flex-start;margin:0;padding:10px 12px;border:1px solid var(--line);
+    border-radius:8px;font-size:14px;color:var(--ink);font-weight:600;cursor:pointer}
+  .setbox .opts label:has(input:checked){border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:#eef4fc}
+  .setbox small{display:block;margin-top:2px;font-weight:400;color:var(--muted);font-size:13px}
+  .setbox .direct{margin-top:10px}
+  .setbox .direct:has(input:disabled){opacity:.45;cursor:not-allowed}
+  .setbox .direct:has(input:checked){border-color:var(--yellow);background:var(--yellowbg)}
+  .setbox input{width:auto;flex:none;margin:3px 0 0}
+  .setbox .acts{display:flex;gap:8px;margin-top:12px}
 </style>
 </head>
 <body>
@@ -159,9 +174,12 @@
   <span class="sub" id="hint">載入中…</span>
   <span class="helper muted" id="helper" aria-live="polite"></span>
   <span class="helper muted" id="mailHelper" aria-live="polite"></span>
+  <span class="helper muted" id="contentMode" aria-live="polite"></span>
   <span style="flex:1"></span>
+  <button id="btnSettings" onclick="setOpen()" aria-haspopup="dialog">公告設定</button>
   <button onclick="load()">重新整理</button>
 </header>
+<div class="setbox" id="setbox" role="dialog" aria-label="公告設定" hidden></div>
 
 <div class="wrap">
   <div class="card list" id="list"></div>
@@ -197,6 +215,7 @@ function render(d){
   document.getElementById('hint').textContent = n+' 件待審　'+b+' 件已擋下';
   helperBadge(d.helper);
   mailHelperBadge(d.mailHelper);
+  contentBadge(d.content);
 
   const arch = d.archive || [];
   const tab = (key, text) => '<button role="tab" aria-selected="'+(TAB===key)+'" onclick="setTab(\''+key+'\')">'+text+'</button>';
@@ -278,6 +297,7 @@ function item(x){
   if(x.status==='PUBLISHED' && (x.mail==='等公告' || x.mail==='待寄')) tag = '已發布・寄信中';
   const mailBad = x.mail==='失敗' && x.status!=='REJECTED';
   if(mailBad) tag = '寄信失敗';
+  else if(x.direct && (x.status==='APPROVED' || x.status==='SUBMITTING' || x.status==='PUBLISHED')) tag += '・直接公告';
   // 送出中超過 30 分鐘還沒確認上架、寄信失敗：紅字提醒
   const tagHtml = mailBad ? '<span style="color:var(--red);font-weight:700">'+tag+'</span>'
     : x.stale ? '<span style="color:var(--red);font-weight:700">'+tag+'・請確認</span>' : '<span>'+tag+'</span>';
@@ -303,6 +323,8 @@ function detail(c){
   if(!c.mailGroups.length && !c.mailState && c.scopeGroups) c.mailGroups = (c.scopeGroups[c.scope] || []).slice();
   CURCASE = c;
   GROUPS_TOUCHED = false;
+  const doneText = c.direct && c.status==='APPROVED'
+    ? '照原公文直接公告 — 等待公告助手自動發布（沒有經過人工審核；要撤回請按「退回」）' : DONE_TEXT[c.status];
   const risk = c.risk || '綠';
   const atts = c.attachments.length
     ? '<div class="att">' + c.attachments.map(a =>
@@ -355,6 +377,11 @@ function detail(c){
 
         <div id="secPost" class="section">
         <h3>校網公告</h3>
+        ${c.contentVersions ? `<label>公告內容</label>
+        <div class="modes" role="radiogroup" aria-label="公告內容">${c.contentVersions.map(v=>
+          `<label><input type="radio" name="ver" value="${esc(v)}" ${v===c.contentVersion?'checked':''}
+            ${v==='照原公文' && !c.origBody ? 'disabled' : ''} onchange="verChanged()">${esc(v)}</label>`).join('')}</div>
+        ${c.origBody ? '' : '<p class="hint">這則是舊版解析的，沒有原文版本；按「重新解析」後就能切換。</p>'}` : ''}
         <label for="f_title">公告標題</label>
         <input id="f_title" value="${esc(c.title)}">
 
@@ -414,8 +441,8 @@ function detail(c){
           <button onclick="reparse()">重新解析</button>` : ''}
           ${c.status==='DELETED'
             ? '<span style="align-self:center;color:var(--muted);font-weight:700">已刪除</span>'
-            : DONE_TEXT[c.status] && !(c.status==='MAILING' && c.mailState==='失敗')
-            ? '<span style="align-self:center;color:var(--green);font-weight:700">' + DONE_TEXT[c.status] + '</span>'
+            : doneText && !(c.status==='MAILING' && c.mailState==='失敗')
+            ? '<span style="align-self:center;color:var(--green);font-weight:700">' + doneText + '</span>'
             : c.status==='MAILING'
             ? ''
             : c.status==='REJECTED'
@@ -454,6 +481,40 @@ function detail(c){
   countRecipients();
   // 記下載入時的內容與存草稿時間，重新解析前用來判斷會不會蓋掉修改
   DRAFT = { savedAt: c.draftSavedAt || '', orig: JSON.stringify(payload()) };
+  VER_BASE = { title: val('f_title'), body: val('f_body') };
+}
+
+// ---------- 公告內容版本（v10.2）：AI 整理／照原公文 ----------
+let VER_BASE = null;   // 載入或切換版本時的標題、內文；改過才需要確認
+function curVer(){
+  const r = document.querySelector('input[name="ver"]:checked');
+  return r ? r.value : '';
+}
+/** 標題換成目前適用對象的前綴（【全校】等） */
+function withPrefix(t){
+  const c = CURCASE || {};
+  const core = String(t || '').replace(/^(【[^】]*】\s*)+/, '');
+  return ((c.prefixes || {})[val('f_scope')] || '') + core;
+}
+function verChanged(){
+  const c = CURCASE || {};
+  const v = curVer();
+  const dirty = VER_BASE && (val('f_title') !== VER_BASE.title || val('f_body') !== VER_BASE.body);
+  if(dirty && !confirm('切換會換掉公告標題和內文，你改過的地方會不見。確定要切換成「' + v + '」？')){
+    const back = document.querySelector('input[name="ver"][value="' + (v==='照原公文' ? 'AI 整理' : '照原公文') + '"]');
+    if(back) back.checked = true;
+    return;
+  }
+  const orig = v === '照原公文';
+  const sameAsLoaded = v === c.contentVersion;
+  const title = orig ? withPrefix(c.subject) : withPrefix(c.aiTitle || (sameAsLoaded ? c.title : '') || c.subject);
+  const body = orig ? c.origBody : (c.aiBody || (sameAsLoaded ? c.body : ''));
+  document.getElementById('f_title').value = title;
+  const b = document.getElementById('f_body');
+  b.value = body;
+  b.dispatchEvent(new Event('input'));
+  VER_BASE = { title: title, body: body };
+  toast('已換成「' + v + '」，存草稿或核准時會重新檢查紅綠燈');
 }
 
 const val = id => document.getElementById(id).value;
@@ -473,7 +534,8 @@ function payload(){
     mailDesc: val('m_desc'),
     mailText: val('m_text'),
     mailGroups: Array.from(document.querySelectorAll('#m_groups input:checked')).map(x => x.value),
-    notPublicOk: !!(document.getElementById('np_ok') && document.getElementById('np_ok').checked)
+    notPublicOk: !!(document.getElementById('np_ok') && document.getElementById('np_ok').checked),
+    contentVersion: curVer() || undefined
   };
 }
 
@@ -614,6 +676,59 @@ function gmSave(){
     toast('已儲存收件群組（' + r.groups.length + ' 個）');
   }).withFailureHandler(e => { b.disabled = false; toast(e.message, 8000); }).api_saveGroups(list);
 }
+
+// ---------- 公告設定（v10.2）：AI 整理／照原公文；照原公文可以不經審核直接公告 ----------
+function contentBadge(st){
+  const el = document.getElementById('contentMode');
+  if(!st){ el.textContent = ''; return; }
+  el.textContent = '公告內容：' + (st.contentMode==='original' ? '照原公文' + (st.directPublish ? '・不經審核直接公告' : '') : 'AI 整理');
+  el.className = 'helper ' + (st.directPublish ? 'yellow' : 'muted');
+}
+function setOpen(){
+  const box = document.getElementById('setbox');
+  if(!box.hidden){ setClose(); return; }
+  box.innerHTML = '<div class="empty" style="padding:16px">載入中…</div>';
+  box.hidden = false;
+  google.script.run.withSuccessHandler(setRender).withFailureHandler(e=>{ setClose(); toast(e.message, 6000); }).api_settings();
+}
+function setRender(st){
+  const box = document.getElementById('setbox');
+  const orig = st.contentMode === 'original';
+  box.innerHTML = `<h2>公告設定</h2>
+    <p class="hint" style="margin:0">只影響之後新收的公文；已經在審核台的公文，可以在每則的「公告內容」自己切換。</p>
+    <div class="opts" role="radiogroup" aria-label="公告內容">
+      <label><input type="radio" name="cm" value="ai" ${orig?'':'checked'} onchange="setSync()">
+        <span>AI 整理<small>AI 改寫成家長、學生看得懂的白話公告，人工審核後發布</small></span></label>
+      <label><input type="radio" name="cm" value="original" ${orig?'checked':''} onchange="setSync()">
+        <span>照原公文<small>標題用公文主旨，內文照抄說明（辦法、公告事項），不改寫</small></span></label>
+    </div>
+    <label class="direct"><input type="checkbox" id="s_direct" ${st.directPublish?'checked':''}>
+      <span>不經審核，直接公告到校網（不寄信）<small>只有綠燈的公文會直接交給公告助手發布，發布時會通知你。有個資、密等、AI 研判不宜公開、附件沒掃到或期限有問題的，一樣留在審核台。</small></span></label>
+    ${st.changedBy ? '<p class="hint">上次修改：' + esc(st.changedBy) + '</p>' : ''}
+    <div class="acts"><button type="button" class="primary" id="s_save" onclick="setSave()">儲存設定</button>
+      <button type="button" onclick="setClose()">取消</button></div>`;
+  setSync();
+}
+function setSync(){
+  const orig = (document.querySelector('input[name="cm"]:checked') || {}).value === 'original';
+  const d = document.getElementById('s_direct');
+  d.disabled = !orig;
+  if(!orig) d.checked = false;
+}
+function setSave(){
+  const mode = (document.querySelector('input[name="cm"]:checked') || {}).value || 'ai';
+  const direct = mode === 'original' && document.getElementById('s_direct').checked;
+  if(direct && !confirm('開啟後，綠燈的公文會「不經審核」直接發布到校網，也不會寄信。\n有黃燈、紅燈的公文一樣會留在審核台。\n\n確定開啟？')) return;
+  const b = document.getElementById('s_save');
+  b.disabled = true;
+  google.script.run.withSuccessHandler(st=>{
+    setClose();
+    contentBadge(st);
+    toast('已儲存公告設定：' + (st.contentMode==='original' ? '照原公文' + (st.directPublish ? '，不經審核直接公告' : '') : 'AI 整理'), 5000);
+  }).withFailureHandler(e=>{ b.disabled = false; toast(e.message, 6000); })
+    .api_saveSettings({ contentMode: mode, directPublish: direct });
+}
+function setClose(){ const box = document.getElementById('setbox'); box.hidden = true; box.innerHTML = ''; }
 
 function busy(on, label){
   const b = document.getElementById('btnOk');

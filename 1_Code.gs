@@ -12,6 +12,7 @@
  *   TELEGRAM_CHAT_ID   setupTelegram() 自動填，不用手動設
  *   BRIDGE_TOKEN     選填，瀏覽器腳本的第二道檢查
  *   RPAGE_USER/PASS  目前用不到，後台登入有驗證碼
+ *   CONTENT_MODE / DIRECT_PUBLISH  審核台「公告設定」自動寫入（AI 整理／照原公文、不經審核直接公告），不用手動設
  *
  * 安裝順序：貼完兩個檔 → 設 ANTHROPIC_API_KEY → 執行 setup() → 部署網頁應用程式
  */
@@ -62,7 +63,7 @@ const CONFIG = {
   CLAUDE_MODEL: 'claude-sonnet-5-5',
   ANTHROPIC_BASE: 'https://api.anthropic.com/v1',
   ANTHROPIC_VERSION: '2023-06-01',
-  AI_MAX_TOKENS: 8192,            // v10 多了寄信欄位，長公文 4096 可能不夠
+  AI_MAX_TOKENS: 16000,           // v10.2 多了照抄的原文本文，長公文 8192 可能不夠（只算實際用到的）
   AI_EFFORT: 'low',
   MAX_INLINE_MB: 18,          // 單次請求的檔案上限
   AI_RETRY: 2,
@@ -130,6 +131,8 @@ const CONFIG = {
   // 每則公文解析完通知「待審核／已擋下」：關掉，到審核台看就好。
   // 其他通知（處理失敗、公告助手暫停、後台登入過期、核准太久沒發布）一律走 notify_：先傳 Telegram，傳不出去改寄 email。
   NOTIFY_NEW_CASE: false,
+  // 「照原公文＋不經審核直接公告」的公文，送交發布時通知一聲（沒有人看過，至少要知道發了什麼）
+  NOTIFY_DIRECT_PUBLISH: true,
 
   // ---- 寄信（v10）----
   // 每則公文三選一：公告＋寄信／只有公告／只有寄信。AI 先建議，審核台可以改。
@@ -193,7 +196,9 @@ const COLUMNS = [
   '歸檔分類', '公文本體ID',         // v9 新增：審核台歷史分頁的資料夾、解析時認定的公文本體
   // v10 新增：發布方式與寄信
   '發布方式', '寄信單位', '寄信歸類', '寄信說明', '寄信內文', '收件群組',
-  '寄信狀態', '寄信時間', '寄信結果'
+  '寄信狀態', '寄信時間', '寄信結果',
+  // v10.2 新增：公告內容版本（AI 整理／照原公文），兩個版本都留著，審核台可以切換
+  '內容版本', 'AI標題', 'AI內文', '原文內文'
 ];
 
 /** 讀取 Script Property，缺少時給出明確錯誤 */
@@ -555,8 +560,8 @@ function intakeOne_(c) {
     throw e;
   }
 
-  // 立刻解析
-  processCase_(caseId);
+  // 立刻解析（新收件才可以「不經審核直接公告」）
+  processCase_(caseId, { intake: true });
 }
 
 /** 掃出案件資料夾內的檔案，分出公文本體與附件 */
@@ -738,6 +743,18 @@ function docSchema_() {
       公告標題: { type: 'string', description: '25 字內，不要加【】前綴，系統會自己加' },
       公告內文: { type: 'string', description: '家長與學生看得懂的白話說明，HTML 片段' },
       重點條列: { type: 'array', items: S },
+      原文本文: {
+        type: 'array',
+        description: '照抄公文主旨以外的正文欄位（說明、辦法、公告事項），一字不改；沒有就給空陣列',
+        items: {
+          type: 'object',
+          properties: {
+            欄名: { type: 'string', enum: ['說明', '辦法', '公告事項', '其他'] },
+            項目: { type: 'array', items: S, description: '每個分項一個元素，保留原本的編號（一、（一）、1.），一字不改' }
+          },
+          required: ['欄名', '項目']
+        }
+      },
       建議發布方式: { type: 'string', enum: CONFIG.PUBLISH_MODES },
       寄信單位: { type: 'string', enum: Object.keys(CONFIG.MAIL_UNITS),
                   description: Object.keys(CONFIG.MAIL_UNITS).map(function (k) { return k + '＝' + CONFIG.MAIL_UNITS[k]; }).join('、') },
@@ -760,7 +777,7 @@ function docSchema_() {
     required: [
       '發文機關', '發文字號', '發文日期', '密等', '主旨', '說明摘要',
       '適合公開', '建議分類', '適用對象', '公告標題', '公告內文', '重點條列', '偵測到的個資', '歸檔資料夾',
-      '建議發布方式', '寄信單位', '寄信歸類', '寄信說明', '寄信內文'
+      '建議發布方式', '寄信單位', '寄信歸類', '寄信說明', '寄信內文', '原文本文'
     ]
   };
 }
@@ -806,6 +823,9 @@ function buildPrompt_(attachmentNames) {
     '   - 寄信說明：25 字內，寫出具體事項，不要寫「有關…一案」。',
     '13. 寄信內文：寫給校內教職員，純文字（不要 HTML），3 到 8 行。第一句就說明這封信的目的，',
     '    接著寫誰要做什麼、期限，最後列出附件名稱。不要只寫「詳見附件」，也不要公文腔；不要寫個人手機或身分證號。',
+    '14. 原文本文：照抄公文正文裡主旨以外的欄位（說明、辦法、公告事項；其他正文欄位用「其他」），',
+    '    一字不改：不要摘要、改寫、潤飾、補字或改標點，民國年也照原文。每個分項（一、二、（一）、1.）各放一個元素，',
+    '    保留原本的編號；跨行的句子接成一行。不要放受文者、正副本、署名、檔號、保存年限、頁碼和頁首頁尾。',
     '',
     attachmentNames.length
       ? '這份公文另有附件：' + attachmentNames.join('、') + '。公告內文可以提到附件，但不要編造附件內容。'
@@ -814,11 +834,11 @@ function buildPrompt_(attachmentNames) {
 }
 
 /** 主解析流程 */
-function processCase_(caseId) {
+function processCase_(caseId, opts) {
   markParsing_(caseId, true);
   try {
     updateCase_(caseId, { '狀態': CONFIG.STATUS.PARSING });
-    processCaseInner_(caseId);
+    processCaseInner_(caseId, opts || {});
   } catch (e) {
     // 沒預料到的錯誤（日期格式、Drive 或試算表暫時失敗…）轉成「錯誤」並通知，不會卡在「解析中」。
     // 只有還沒寫完結果（仍是新收件／解析中）才改；結果已寫入就不要蓋掉。
@@ -836,7 +856,8 @@ function processCase_(caseId) {
   }
 }
 
-function processCaseInner_(caseId) {
+function processCaseInner_(caseId, opts) {
+  opts = opts || {};
   let c, info;
   try {
     c = getCase_(caseId);
@@ -859,7 +880,18 @@ function processCaseInner_(caseId) {
   // 風險檢核。AI 研判不適合放校網、但公文沒有密等：不擋下，改成黃燈警告，內文照樣掃個資；
   // 預設「只有寄信」。審核人勾「我已確認可以公開到校網」解除警告後，也可以選公告（v10.1）。
   const internalOnly = parsed['適合公開'] === false && !isSecretLevel_(parsed['密等']);
-  const risk = assessRisk_(internalOnly ? Object.assign({}, parsed, { '適合公開': true }) : parsed);
+  // v10.2 公告內容：照原公文時，標題用主旨、內文照抄；紅綠燈掃的是真正要上網的那個版本
+  const settings = contentSettings_();
+  const useOrig = settings.contentMode === 'original';
+  const origBody = buildOrigBody_(parsed);
+  const hasOrigText = origSections_(parsed).length > 0;
+  const shown = useOrig
+    ? Object.assign({}, parsed, { '公告標題': oneLine_(parsed['主旨']), '公告內文': origBody, '重點條列': [] })
+    : parsed;
+  const risk = assessRisk_(internalOnly ? Object.assign({}, shown, { '適合公開': true }) : shown);
+  if (useOrig && !hasOrigText) {
+    mergeRisk_(risk, { level: '黃', notes: ['原文：讀不到說明欄，內文只有主旨，請對照公文確認'] });
+  }
   if (internalOnly) {
     mergeRisk_(risk, { level: '黃', notes: [NOT_PUBLIC_NOTE_ + (parsed['不適合公開原因'] || '未說明') + '（建議只寄信給校內群組）'] });
   }
@@ -891,13 +923,29 @@ function processCaseInner_(caseId) {
   if (period.note) mergeRisk_(risk, { level: '黃', notes: [period.note] });
 
   const prefix = CONFIG.SCOPE_PREFIX[parsed['適用對象']] || '';
-  const status = risk.level === '紅' || (!parsed['適合公開'] && !internalOnly)
+  let status = risk.level === '紅' || (!parsed['適合公開'] && !internalOnly)
     ? CONFIG.STATUS.BLOCKED
     : CONFIG.STATUS.REVIEW;
-  const mode = internalOnly ? '只有寄信'
+  let mode = internalOnly ? '只有寄信'
     : CONFIG.PUBLISH_MODES.indexOf(parsed['建議發布方式']) >= 0 ? parsed['建議發布方式'] : '只有公告';
+  const aiTitle = prefix + parsed['公告標題'];
+  const aiBody = buildBody_(parsed);
+  const origTitle = prefix + oneLine_(parsed['主旨']);
 
-  updateCase_(caseId, {
+  // v10.2 照原公文＋不經審核直接公告：只有新收件、綠燈（沒有個資、密等、不宜公開、附件未掃描、期限問題）才直接送交發布，
+  // 不寄信。其他一律留在審核台，並寫明原因。
+  let direct = false;
+  if (opts.intake && settings.directPublish) {
+    if (status === CONFIG.STATUS.REVIEW && risk.level === '綠' && hasOrigText) {
+      direct = true;
+      status = CONFIG.STATUS.APPROVED;
+      mode = '只有公告';
+    } else {
+      risk.reasons.push('直接公告：' + (status === CONFIG.STATUS.BLOCKED ? '被擋下' : '有' + risk.level + '燈提醒') + '，改由人工審核');
+    }
+  }
+
+  updateCase_(caseId, Object.assign({
     '狀態': status,
     '發文機關': parsed['發文機關'],
     '發文字號': parsed['發文字號'],
@@ -907,8 +955,8 @@ function processCaseInner_(caseId) {
     '主旨': parsed['主旨'],
     '辦理期限': period.deadline,
     '建議分類': parsed['建議分類'],
-    '公告標題': prefix + parsed['公告標題'],
-    '公告內文': buildBody_(parsed),
+    '公告標題': useOrig ? origTitle : aiTitle,
+    '公告內文': useOrig ? origBody : aiBody,
     '適用對象': parsed['適用對象'],
     '公告起日': period.start,
     '公告迄日': period.end,
@@ -924,9 +972,17 @@ function processCaseInner_(caseId) {
     '寄信說明': textCell_(oneLine_(parsed['寄信說明']).slice(0, 60)),
     '寄信內文': textCell_(String(parsed['寄信內文'] || '').trim()),
     '收件群組': scopeGroupIds_(parsed['適用對象']).join(','),
-    '寄信狀態': '', '寄信時間': '', '寄信結果': ''
-  });
+    '寄信狀態': '', '寄信時間': '', '寄信結果': '',
+    '內容版本': useOrig ? CONTENT_ORIG_ : CONTENT_AI_,
+    'AI標題': aiTitle,
+    'AI內文': aiBody,
+    '原文內文': origBody
+  }, direct ? { '審核人': DIRECT_REVIEWER_, '審核時間': new Date() } : {}));   // 直接公告：審核人記成系統，公告助手像一般核准的案件一樣接手
   markDraft_(caseId, false);   // 內容已換成 AI 新版，舊草稿記號作廢
+  if (direct && CONFIG.NOTIFY_DIRECT_PUBLISH) {
+    try { notify_('公文已直接送交發布（照原公文，不經審核）', origTitle + '\n' + [parsed['發文機關'], parsed['發文字號']].filter(Boolean).join(' ') + '\n要撤回請到審核台按「退回」。'); }
+    catch (e) { console.warn('通知失敗：' + e.message); }
+  }
 
   // 結果已經寫好：搬資料夾、寄通知失敗（例如郵件額度用完）都不影響案件狀態
   try { moveCaseFolder_(c['資料夾ID'], status === CONFIG.STATUS.BLOCKED ? 'REJECTED' : 'REVIEW'); }
@@ -1115,6 +1171,73 @@ function fileBase_(parsed) {
 
   return topic + '_' + ymd;
 }
+
+// ---------- 公告內容：AI 整理／照原公文（v10.2） ----------
+const CONTENT_AI_ = 'AI 整理';
+const CONTENT_ORIG_ = '照原公文';
+const DIRECT_REVIEWER_ = '系統：照原公文直接公告';
+
+/** AI 照抄的原文欄位，去掉空白項目 */
+function origSections_(p) {
+  return (p['原文本文'] || []).map(function (sec) {
+    return {
+      name: String(sec && sec['欄名'] || '').trim(),
+      items: ((sec && sec['項目']) || []).map(function (x) { return String(x == null ? '' : x).replace(/\s*[\r\n]+\s*/g, '').trim(); })
+        .filter(String)
+    };
+  }).filter(function (sec) { return sec.items.length; });
+}
+
+/** 已跳脫的文字裡，網址做成連結（文字不變） */
+function linkify_(escaped) {
+  return escaped.replace(/https?:\/\/[A-Za-z0-9\-._~:\/?#\[\]@!$&'()*+,;=%]+/g, function (u) {
+    const tail = (u.match(/[.,;:!?)\]']+$/) || [''])[0];
+    const link = tail ? u.slice(0, -tail.length) : u;
+    return '<a href="' + link + '">' + link + '</a>' + tail;
+  });
+}
+
+/** 照原公文：主旨、說明（辦法、公告事項）照抄，每個分項一段，不改寫 */
+function buildOrigBody_(p) {
+  const parts = ['<h3>主旨</h3>', '<p>' + linkify_(escapeHtml_(oneLine_(p['主旨']))) + '</p>'];
+  origSections_(p).forEach(function (sec) {
+    if (sec.name && sec.name !== '其他') parts.push('<h3>' + escapeHtml_(sec.name) + '</h3>');
+    sec.items.forEach(function (x) { parts.push('<p>' + linkify_(escapeHtml_(x)) + '</p>'); });
+  });
+  parts.push('<p>資料來源：' + escapeHtml_(p['發文機關'] || '') + ' ' + escapeHtml_(p['發文字號'] || '') + '</p>');
+  return sanitizeBody_(parts.join('\n'));
+}
+
+/** 公告設定（審核台「公告設定」）：照原公文時才可以不經審核直接公告 */
+function contentSettings_() {
+  const p = PropertiesService.getScriptProperties();
+  const mode = p.getProperty('CONTENT_MODE') === 'original' ? 'original' : 'ai';
+  return {
+    contentMode: mode,
+    directPublish: mode === 'original' && p.getProperty('DIRECT_PUBLISH') === '1',
+    changedBy: p.getProperty('CONTENT_SET_BY') || ''
+  };
+}
+
+function api_settings() {
+  requireReviewer_();
+  return contentSettings_();
+}
+
+function api_saveSettings(d) {
+  requireReviewer_();
+  if (!d || ['ai', 'original'].indexOf(d.contentMode) < 0) throw new Error('公告內容的選項不正確。');
+  const direct = d.contentMode === 'original' && d.directPublish === true;   // 切回 AI 整理就一併關掉直接公告
+  const who = Session.getActiveUser().getEmail() || '審核人';
+  PropertiesService.getScriptProperties().setProperties({
+    CONTENT_MODE: d.contentMode,
+    DIRECT_PUBLISH: direct ? '1' : '',
+    CONTENT_SET_BY: who + ' ' + Utilities.formatDate(new Date(), 'Asia/Taipei', 'MM/dd HH:mm')
+  });
+  return contentSettings_();
+}
+
+function isDirect_(c) { return c['審核人'] === DIRECT_REVIEWER_; }
 
 /** 把模型輸出組成最終 HTML 內文 */
 function buildBody_(p) {
@@ -1843,7 +1966,8 @@ function api_list() {
     folders: CONFIG.ARCHIVE_FOLDERS.concat([CONFIG.UNFILED]),
     recentHours: CONFIG.RECENT_HOURS,
     helper: helperStatus_(),
-    mailHelper: mailHelperStatus_()
+    mailHelper: mailHelperStatus_(),
+    content: contentSettings_()
   };
 }
 
@@ -1874,6 +1998,7 @@ function slim_(rows) {
       archive: archiveOf_(r['歸檔分類']),
       mode: modeOf_(r),
       mail: r['寄信狀態'] || '',
+      direct: isDirect_(r),
       // 送出中超過 30 分鐘還沒確認上架 → 清單上提醒人工確認
       stale: r['狀態'] === CONFIG.STATUS.SUBMITTING &&
              Date.now() - Number(props['CLAIM_' + r.caseId] || 0) > SUBMIT_STALE_MS
@@ -1958,7 +2083,15 @@ function api_detail(caseId) {
     mailMB: Math.round(mailFiles_(files).reduce(function (s, f) { return s + (Number(f.size) || 0); }, 0) / 1048576 * 10) / 10,
     mailMaxMB: CONFIG.MAIL_MAX_MB,
     mailReady: mailReady_(),
-    mailHelper: mailHelperStatus_()
+    mailHelper: mailHelperStatus_(),
+    // v10.2 公告內容版本：兩個版本都給，審核台可以切換
+    contentVersion: c['內容版本'] === CONTENT_ORIG_ ? CONTENT_ORIG_ : CONTENT_AI_,
+    contentVersions: [CONTENT_AI_, CONTENT_ORIG_],
+    aiTitle: String(c['AI標題'] || ''),
+    aiBody: sanitizeBody_(c['AI內文']),
+    origBody: sanitizeBody_(c['原文內文']),
+    prefixes: CONFIG.SCOPE_PREFIX,
+    direct: isDirect_(c)
   };
 }
 
@@ -2033,6 +2166,7 @@ function draftPatch_(d) {
     p['公告起日'] = d.startDate;
     p['公告迄日'] = d.endDate;
   }
+  if (d.contentVersion === CONTENT_AI_ || d.contentVersion === CONTENT_ORIG_) p['內容版本'] = d.contentVersion;
   if (d.mailUnit !== undefined) {          // 舊版審核台沒有寄信欄位
     p['寄信單位'] = d.mailUnit;
     p['寄信歸類'] = d.mailType;
