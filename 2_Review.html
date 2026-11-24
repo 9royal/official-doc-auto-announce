@@ -262,7 +262,7 @@ function helperBadge(h){
   const el = document.getElementById('helper');
   if(!h){ el.textContent=''; return; }
   let t, cls;
-  if(h.state==='never'){ t='公告助手：還沒有回報（請安裝 1.7 版並開著後台分頁）'; cls='muted'; }
+  if(h.state==='never'){ t='公告助手：還沒有回報（請裝 1.9 版、開著後台分頁，再看助手面板「回報系統」那一行的原因）'; cls='muted'; }
   else if(h.ageMin > 15){ t='公告助手：'+h.ageMin+' 分鐘沒有回報（電腦、Chrome 或後台分頁可能沒開）'; cls='red'; }
   else if(h.state==='paused'){ t='公告助手：已暫停 — '+h.msg; cls='red'; }
   else if(h.state==='login'){ t='公告助手：校網後台登入已過期，請重新登入'; cls='red'; }

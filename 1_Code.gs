@@ -2665,7 +2665,7 @@ function checkWaiting_() {
   const longest = Math.max.apply(null, waits.map(function (x) { return x.ms; }));
   const h = helperStatus_();
   if (h.state === 'running' && h.auto && h.ageMin <= 15 && longest < 2 * 60 * 60 * 1000) return false;   // 助手正常在跑，只是還沒輪到
-  const why = h.state === 'never' ? '公告助手還沒有回報過（請安裝 1.7 版，並開著校網後台分頁）'
+  const why = h.state === 'never' ? '公告助手還沒有回報過（請安裝 1.9 版，開著校網後台分頁，並看助手面板「回報系統」那一行的原因）'
     : h.ageMin > 15 ? '公告助手已經 ' + h.ageMin + ' 分鐘沒有回報（電腦關機、Chrome 關掉或後台分頁沒開）'
     : h.state === 'login' ? '校網後台登入已過期'
     : h.state === 'paused' ? '公告助手已暫停：' + (h.msg || '請看後台分頁的公告助手面板')

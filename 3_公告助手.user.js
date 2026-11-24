@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         公文公告助手
 // @namespace    school-announce-helper
-// @version      1.8
+// @version      1.9
 // @description  黑快馬後台公告模組：核准後自動發布，或手動帶入已核准的公告草稿與附件
 // @match        https://www.dgejh.ntpc.edu.tw/platform/*
 // @grant        GM_setValue
@@ -48,6 +48,10 @@
  *          開了好幾個後台分頁時只有做事的那個分頁回報，停在登入頁的舊分頁不會誤報登入過期。
  *          頁框之間的訊息只收、只送同一個網站，別的網站嵌進來的頁框無法下指令。
  * 1.8 面板標題旁加上 Ro 品牌符號。
+ * 1.9 修正「助手開著，審核台卻一直顯示還沒有回報」：
+ *          打開後台頁就馬上回報一次（以前沒勾自動發布要等 2 分鐘才第一次回報）；
+ *          回報失敗不再無聲無息：面板顯示「回報系統」成功或失敗的原因，右下角按鈕變紅；
+ *          按「儲存設定」會立刻測試連線；連線逾時 30 秒會報錯。
  */
 
 (function () {
@@ -436,7 +440,9 @@
           }
           j.ok ? resolve(j) : reject(new Error(j.error));
         },
-        onerror: function () { reject(new Error('連線失敗，確認網址是否正確')); }
+        onerror: function () { reject(new Error('連線失敗，確認網址是否正確')); },
+        timeout: 30000,
+        ontimeout: function () { reject(new Error('連線逾時（30 秒沒有回應），稍後會再試')); }
       });
     });
   }
@@ -486,6 +492,9 @@
       #dgejh-msg.okm{background:#e6f4ea;color:#137333}
       #dgejh-msg.warn{background:#fef7e0;color:#8a5a00}
       #dgejh-panel .sub{font-size:12px;color:#5f6368}
+      #dgejh-fab.bad{background:#c5221f}
+      #dg-conn.ok{color:#137333}
+      #dg-conn.bad{color:#c5221f;font-weight:600}
     </style>
     <button id="dgejh-fab">公告助手</button>
     <div id="dgejh-body">
@@ -525,6 +534,7 @@
       <label>BRIDGE_TOKEN（沒設定就留空）</label>
       <input id="dg-token">
       <button class="act" id="dg-save">儲存設定</button>
+      <div class="sub" id="dg-conn" style="margin-top:6px">回報系統：還沒連線</div>
 
       <label style="margin-top:16px">欄位對應</label>
       <div id="dg-map"></div>
@@ -606,7 +616,8 @@
   $('#dg-save').onclick = function () {
     cfg.url = $('#dg-url').value.trim();
     cfg.token = $('#dg-token').value.trim();
-    msg('設定已儲存');
+    msg('設定已儲存，正在測試連線…', 'warn');
+    reportNow(true);   // 1.9：存檔就測一次，網址或登入有問題馬上知道
   };
 
   $('#dg-detect').onclick = function () {
@@ -1059,7 +1070,46 @@
    * running：自動發布運作中　off：沒勾自動發布　paused：出錯暫停（附原因）　login：後台登入過期
    */
   function beat(state, why) {
-    api({ api: 'beat', auto: cfg.auto ? '1' : '0', state: state, msg: why || '' }).catch(() => {});
+    return api({ api: 'beat', auto: cfg.auto ? '1' : '0', state: state, msg: why || '' })
+      .then(function () { setConn(true); return true; })
+      .catch(function (e) { setConn(false, e.message); return false; });
+  }
+
+  /**
+   * 1.9：回報結果顯示在面板上。以前回報失敗（網址錯、Google 沒登入或登入成別的帳號、token 不符）完全不顯示，
+   * 看起來助手開著，審核台卻一直「還沒有回報」。失敗時右下角按鈕變紅，同一個原因只跳一次訊息。
+   */
+  let lastConnErr = '';
+  function setConn(ok, why) {
+    const el = $('#dg-conn'), fab = $('#dgejh-fab');
+    const t = new Date().toTimeString().slice(0, 5);
+    if (ok) {
+      el.textContent = '回報系統：成功（' + t + '），審核台重新整理就看得到';
+      el.className = 'sub ok';
+      fab.classList.remove('bad');
+      lastConnErr = '';
+      return;
+    }
+    el.textContent = '回報系統：失敗（' + t + '）— ' + why;
+    el.className = 'sub bad';
+    fab.classList.add('bad');
+    if (why !== lastConnErr) {
+      lastConnErr = why;
+      msg('公告助手連不上審核系統，審核台會一直顯示「還沒有回報」：\n' + why, 'err');
+    }
+  }
+
+  /** 馬上回報一次目前狀態（打開頁面、儲存設定、取消自動發布時），不用等 2 分鐘的下一輪 */
+  function reportNow(force) {
+    const lock = JSON.parse(GM_getValue('autoLock', '{}') || '{}');
+    const otherTab = lock.tab && lock.tab !== TAB_ID && Date.now() - lock.at < CYCLE_MS * 1.5;
+    if (otherTab && !force) return;   // 別的分頁在做事，由它回報
+    if (cfg.auto && !force) return cycle();
+    if (cfg.auto && RP.loginPage()) return beat('login', '校網後台登入已過期');
+    const why = GM_getValue('pausedReason', '');
+    return beat(cfg.auto ? 'running' : (why ? 'paused' : 'off'), why).then(function (ok) {
+      if (force && ok) msg('連線成功：審核台重新整理後就會看到公告助手的狀態。');
+    });
   }
 
   function pauseAuto(reason) {
@@ -1182,10 +1232,11 @@
       setTimeout(cycle, 1000);
     } else {
       setStatus('已關閉');
+      reportNow();   // 1.9：審核台馬上改成「沒有勾選」
     }
   };
   setInterval(cycle, CYCLE_MS);
-  if (cfg.auto) setTimeout(cycle, 5000);
+  setTimeout(reportNow, 5000);   // 1.9：沒勾自動發布也馬上回報一次（以前要等 2 分鐘）
   // 保持後台登入（只在自動模式開著時）
   setInterval(function () {
     if (cfg.auto && !RP.loginPage()) fetch(location.pathname, { credentials: 'same-origin', cache: 'no-store' }).catch(() => {});
