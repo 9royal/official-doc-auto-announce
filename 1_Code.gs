@@ -54,7 +54,8 @@ const CONFIG = {
     WORKING:   '01_處理中',
     REVIEW:    '02_待審核',
     PUBLISHED: '03_已發布',
-    REJECTED:  '99_已退回'
+    REJECTED:  '99_已退回',
+    BLOCKED:   '99_已退回無法再次送出'   // 解析後被擋下（密等、紅燈）的案件；人工「退回」的仍放 99_已退回
   },
 
   SHEET_NAME: '公告佇列',
@@ -325,6 +326,11 @@ function getOrCreateFolder_(parent, name) {
 }
 
 function folder_(key) {
+  // 舊版安裝後才新增的資料夾（例如 BLOCKED）：沒有屬性就在根資料夾下建立並記住，不必重跑 setup
+  if (!prop_('FOLDER_' + key, false) && CONFIG.FOLDERS[key]) {
+    const root = DriveApp.getFolderById(prop_('ROOT_FOLDER_ID', true));
+    setProp_('FOLDER_' + key, getOrCreateFolder_(root, CONFIG.FOLDERS[key]).getId());
+  }
   return DriveApp.getFolderById(prop_('FOLDER_' + key, true));
 }
 
@@ -1068,7 +1074,7 @@ function processCaseInner_(caseId, opts) {
   }
 
   // 結果已經寫好：搬資料夾、寄通知失敗（例如郵件額度用完）都不影響案件狀態
-  try { moveCaseFolder_(c['資料夾ID'], status === CONFIG.STATUS.BLOCKED ? 'REJECTED' : 'REVIEW'); }
+  try { moveCaseFolder_(c['資料夾ID'], status === CONFIG.STATUS.BLOCKED ? 'BLOCKED' : 'REVIEW'); }
   catch (e) { console.warn('搬資料夾失敗：' + e.message); }
   if (CONFIG.NOTIFY_NEW_CASE) {
     try { notifyReviewer_(caseId, status, risk); }
@@ -1249,7 +1255,7 @@ function noDateSlash_(s) {
 }
 
 /**
- * 一次性：把現有公文資料夾和檔名裡的日期斜線拿掉（01_處理中、02_待審核、03_已發布、99_已退回），
+ * 一次性：把現有公文資料夾和檔名裡的日期斜線拿掉（01_處理中、02_待審核、03_已發布、99_已退回、99_已退回無法再次送出），
  * 並更新佇列的「附件清單」檔名。重跑沒關係，已經改過的不會再動。
  * 每 10 分鐘的收件排程會自動跑一次；也可以在編輯器選 fixDateNames 手動執行。
  */
@@ -1276,7 +1282,7 @@ function fixDateNames(deadline) {
       if (depth < 2) walk(d, depth + 1);      // 03_已發布／分類／公文資料夾／檔案
     }
   };
-  ['WORKING', 'REVIEW', 'PUBLISHED', 'REJECTED'].forEach(function (k) {
+  ['WORKING', 'REVIEW', 'PUBLISHED', 'REJECTED', 'BLOCKED'].forEach(function (k) {
     if (done) { try { walk(folder_(k), 0); } catch (e) { log.push('⚠ ' + CONFIG.FOLDERS[k] + '：' + e.message); } }
   });
   if (Object.keys(changed).length) {
@@ -2598,7 +2604,7 @@ function api_forceApprove(caseId, d, reason, typed) {
       '審核時間': new Date(),
       '備註': '紅燈強制送出：' + reason
     }));
-    // 先搬回待審核資料夾（已擋下的在 99_已退回，寄信小幫手讀不到附件），再設狀態與排信；同一把鎖裡做，不會重複排信
+    // 先搬回待審核資料夾（已擋下的在 99_已退回無法再次送出，寄信小幫手讀不到附件），再設狀態與排信；同一把鎖裡做，不會重複排信
     try { moveCaseFolder_(c['資料夾ID'], 'REVIEW'); } catch (e) {}
     msg = setModeState_(caseId, mode).message;
   } finally {
