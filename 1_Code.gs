@@ -1809,6 +1809,9 @@ function noteLevel_(r) {
   return '綠';   // 「附件：」ODF 提醒、無障礙提醒
 }
 
+/** 強制送出、解除紅燈的原因最少字數（原本 4 個字，「可公開」這種 3 個字的會被擋下） */
+const REASON_MIN_ = 2;
+
 /** 提醒用「；」串起來存，單則提醒裡的「；」改成「，」，存草稿拆開時才不會斷成兩半 */
 function cleanNote_(s) { return String(s).replace(/；/g, '，'); }
 function joinNotes_(arr) { return arr.map(cleanNote_).join('；'); }
@@ -2439,7 +2442,7 @@ function api_reject(caseId, note) {
 function api_overrideFileRed(caseId, reason) {
   requireReviewer_();
   reason = cleanNote_(String(reason || '').trim()).slice(0, 100);
-  if (reason.length < 4) throw new Error('請寫下解除的原因（例如：附件裡是範例資料）。');
+  if (reason.length < REASON_MIN_) throw new Error('請寫下解除的原因（至少 ' + REASON_MIN_ + ' 個字，例如：附件裡是範例資料）。');
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error('系統忙碌中，請過幾秒再按一次。');
   let c;
@@ -2568,7 +2571,7 @@ function isForced_(c) { return /(^|；)人工確認強制送出：/.test(String(
 function api_forceApprove(caseId, d, reason, typed) {
   requireReviewer_();
   reason = cleanNote_(String(reason || '').trim()).slice(0, 100);
-  if (reason.length < 4) throw new Error('請寫下確認可以公開的原因。');
+  if (reason.length < REASON_MIN_) throw new Error('請寫下確認可以公開的原因（至少 ' + REASON_MIN_ + ' 個字，例如：海報是公開宣傳資料）。');
   validateDraft_(d);
   const mode = d && d.mode !== undefined ? d.mode : '只有公告';
   let c = getCase_(caseId);

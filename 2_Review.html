@@ -793,6 +793,15 @@ function resubmit(){
     .withFailureHandler(e=>toast(e.message,6000)).api_resubmit(CUR);
 }
 
+/** 問原因：太短就再問一次（不用整個流程重來）；按取消回傳 null */
+function askReason(msg){
+  let why = prompt(msg);
+  while(why!==null && why.trim().length < 2){
+    why = prompt('原因太短，請至少寫 2 個字。\n\n' + msg, why);
+  }
+  return why===null ? null : why.trim();
+}
+
 /** 紅燈強制送出：看過風險、寫下原因；密等公文還要輸入「確認公開」 */
 function force(){
   const c = CURCASE || {};
@@ -808,7 +817,7 @@ function force(){
     : '公告助手會照常把公告和檔案（含公文本體）發到校網';
   if(!confirm('這則是紅燈：\n\n・' + (c.riskNotes||[]).join('\n・') +
      '\n\n強制送出後，' + what + '。\n確定已經看過、可以送出嗎？')) return;
-  const why = prompt('請寫下可以公開的原因（會記錄在系統裡）：');
+  const why = askReason('請寫下可以公開的原因（會記錄在系統裡，至少 2 個字）：');
   if(why===null) return;
   let typed = '';
   if(c.secret){
@@ -824,7 +833,7 @@ function force(){
 
 /** 只因附件掃描被擋下：打開附件確認後，寫原因解除紅燈（之後核准仍要勾「已開啟檢查」） */
 function overrideRed(){
-  const why = prompt('請寫下可以公開的原因（例如：附件裡是範例資料、空白報名表）：');
+  const why = askReason('請寫下可以公開的原因（例如：附件裡是範例資料、空白報名表，至少 2 個字）：');
   if(why===null) return;
   google.script.run.withSuccessHandler(c=>{ detail(c); toast('已解除紅燈，回到待審'); load(); })
     .withFailureHandler(e=>toast(e.message,6000)).api_overrideFileRed(CUR, why);
