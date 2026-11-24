@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         公文公告助手
 // @namespace    school-announce-helper
-// @version      1.9
+// @version      1.9.1
 // @description  黑快馬後台公告模組：核准後自動發布，或手動帶入已核准的公告草稿與附件
 // @match        https://www.dgejh.ntpc.edu.tw/platform/*
 // @grant        GM_setValue
@@ -52,6 +52,7 @@
  *          打開後台頁就馬上回報一次（以前沒勾自動發布要等 2 分鐘才第一次回報）；
  *          回報失敗不再無聲無息：面板顯示「回報系統」成功或失敗的原因，右下角按鈕變紅；
  *          按「儲存設定」會立刻測試連線；連線逾時 30 秒會報錯。
+ * 1.9.1 別的後台分頁正在自動發布時，這個分頁會顯示「待命」與對方最後動作時間，不再一片空白。
  */
 
 (function () {
@@ -1186,7 +1187,11 @@
       if (!otherTab) beat(why ? 'paused' : 'off', why);
       return;
     }
-    if (otherTab) return;
+    if (otherTab) {   // 1.9.1：講清楚為什麼這個分頁沒動作
+      setStatus('待命：另一個校網後台分頁正在自動發布（它最後動作 ' + new Date(lock.at).toTimeString().slice(0, 5) +
+                '）。只要留一個後台分頁，其他關掉，這個分頁 3 分鐘內會接手');
+      return;
+    }
     if (RP.loginPage()) { setStatus('後台登入已過期，請重新登入；登入後會自動繼續'); beat('login', '校網後台登入已過期'); return; }
     GM_setValue('autoLock', JSON.stringify({ tab: TAB_ID, at: Date.now() }));
 
